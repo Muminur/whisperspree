@@ -1,0 +1,27 @@
+[package]
+name = "whisperspree"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77"
+
+# The library holds all app logic (`run()`); `main.rs` is a thin launcher that
+# calls into it. Splitting the crate lets the `tests/` integration crate link
+# the same code. Desktop-only v1 → `rlib` is all we need.
+[lib]
+name = "whisperspree_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# `tray-icon` enables the menu-bar tray; `image-png` lets Tauri decode the
+# bundled default icon used for the tray glyph; `macos-private-api` is required
+# by `app.macOSPrivateApi: true` (HUD transparency, FR-5.2). All PRD §4.1-sanctioned
+# (Tauri 2.x shell + tray).
+tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+tauri-plugin-single-instance = "2"
+
+[dev-dependencies]
+# Scaffold contract tests (tests/scaffold.rs) parse tauri.conf.json with serde_json.
+serde_json = "1"

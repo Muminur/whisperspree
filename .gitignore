@@ -24,6 +24,7 @@ coverage/
 # --- Rust ---
 target/
 src-tauri/target/
+src-tauri/gen/
 
 # --- Test artifacts ---
 playwright-report/

@@ -1,0 +1,137 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+jobs:
+  gate:
+    name: GATE (PRD §15.2 / §17.5)
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # pnpm/action-setup MUST run before setup-node so `cache: pnpm` works.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node ${{ matrix.node }}
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy, llvm-tools-preview
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Install frontend dependencies
+        run: pnpm i --frozen-lockfile
+
+      - name: pnpm typecheck
+        run: pnpm typecheck
+
+      - name: pnpm test
+        run: pnpm test
+
+      - name: cargo fmt --check
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+
+      - name: cargo clippy -D warnings
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      # Report-only until T0.2 (TASKS.md M0 override): the scaffold is stub-only,
+      # so line coverage is not yet enforced. `--fail-under-lines 85` lands at T0.2.
+      - name: Coverage (report-only)
+        run: cargo llvm-cov --manifest-path src-tauri/Cargo.toml --ignore-filename-regex '(hotkey/|inject/macos|context/macos|audio/capture)' || true
+
+      - name: Hygiene gates
+        run: |
+          set -uo pipefail
+          fail=0
+          if grep -rnI --exclude-dir=target "danger_accept_invalid_certs" src-tauri/src src 2>/dev/null; then
+            echo "::error::danger_accept_invalid_certs is forbidden (P-8)"; fail=1
+          fi
+          if grep -rn "std::process::Command" src-tauri/src 2>/dev/null; then
+            echo "::error::std::process::Command is forbidden in src-tauri/src"; fail=1
+          fi
+          if grep -rnE 'println!|eprintln!|dbg!' src-tauri/src 2>/dev/null; then
+            echo "::error::println!/eprintln!/dbg! are forbidden in src-tauri/src (use tracing)"; fail=1
+          fi
+          if grep -rnE 'eval\(|new Function\(|dangerouslySetInnerHTML' src 2>/dev/null; then
+            echo "::error::eval / new Function / dangerouslySetInnerHTML are forbidden in src/"; fail=1
+          fi
+          # Governance docs must never be tracked (LOOP §1.2). Empty grep = pass.
+          if git ls-files | grep -E '^(CLAUDE|PLANNING|TASKS|PRD|LOOP|Loop)\.md$|^docs/PRD\.md$|^idea\.txt$'; then
+            echo "::error::governance docs must not be committed (LOOP §1.2)"; fail=1
+          fi
+          exit $fail
+
+      - name: Playwright E2E (when present)
+        run: |
+          if [ -d e2e ]; then
+            pnpm exec playwright install chromium
+            pnpm e2e
+          else
+            echo "e2e not present yet — skipped"
+          fi
+
+  live-smoke:
+    name: Live smoke (opt-in, secret-gated)
+    runs-on: macos-14
+    env:
+      HAS_DG: ${{ secrets.WHISPERSPREE_LIVE_DG_KEY }}
+    steps:
+      - name: Report live-provider availability
+        run: |
+          if [ -n "${HAS_DG}" ]; then
+            echo "Deepgram secret present — live smoke wiring arrives with T3.1."
+          else
+            echo "no secrets — skipped"
+          fi
+
+  build:
+    name: Build dmg (tags only)
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+      - name: Install frontend dependencies
+        run: pnpm i --frozen-lockfile
+      - name: Build release dmg
+        run: pnpm tauri build
