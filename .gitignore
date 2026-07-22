@@ -1,0 +1,33 @@
+# --- Local-only governance docs — never push (LOOP §1.2) ---
+CLAUDE.md
+PLANNING.md
+TASKS.md
+PRD.md
+docs/PRD.md
+idea.txt
+LOOP.md
+Loop.md
+
+# --- Secrets ---
+.env
+.env.*
+
+# --- macOS ---
+.DS_Store
+
+# --- Node / frontend ---
+node_modules/
+dist/
+coverage/
+.vite/
+
+# --- Rust ---
+target/
+src-tauri/target/
+
+# --- Test artifacts ---
+playwright-report/
+test-results/
+
+# --- Claude Code local overrides ---
+.claude/settings.local.json

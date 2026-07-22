@@ -1,0 +1,30 @@
+{
+  "attribution": { "commit": "", "pr": "" },
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Bash(git:*)",
+      "Bash(gh *)",
+      "Bash(gh:*)",
+      "Bash(pnpm *)",
+      "Bash(pnpm:*)",
+      "Bash(cargo *)",
+      "Bash(cargo:*)",
+      "WebSearch",
+      "WebFetch(domain:docs.rs)",
+      "WebFetch(domain:crates.io)",
+      "WebFetch(domain:v2.tauri.app)",
+      "WebFetch(domain:tauri.app)",
+      "WebFetch(domain:developers.deepgram.com)",
+      "WebFetch(domain:docs.anthropic.com)",
+      "WebFetch(domain:platform.claude.com)",
+      "WebFetch(domain:playwright.dev)",
+      "WebFetch(domain:huggingface.co)"
+    ],
+    "deny": [
+      "Read(./.env*)",
+      "Bash(git push --force *)",
+      "Bash(git push --force:*)"
+    ]
+  }
+}
