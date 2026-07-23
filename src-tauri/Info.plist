@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Menu-bar-only app: no Dock icon (§4.4 / FR-5.2). -->
+	<key>LSUIElement</key>
+	<true/>
+	<!-- Shown in the macOS microphone permission prompt (§4.4 / FR-5.2). -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>WhisperSpree needs microphone access to transcribe your speech.</string>
+</dict>
+</plist>
