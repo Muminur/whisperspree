@@ -42,6 +42,10 @@ regex = "1"
 serde_json = "1"
 keyring = { version = "3", features = ["apple-native"] }
 
+# T0.4 SQLite stores (§4.2, §8.1). `bundled` links a vendored SQLite so CI/dev
+# machines need no system libsqlite3 — matches the pinned crate+feature exactly.
+rusqlite = { version = "0.31", features = ["bundled"] }
+
 [dev-dependencies]
 # Settings-store tests need real tempdirs (CLAUDE.md §3: real filesystem, not mocks)
 # for atomic-write / permissions / I/O-failure fixtures.
