@@ -5,6 +5,8 @@
 //! pipeline, …) are added by later tasks per the §11 layout.
 
 pub mod error;
+pub mod store;
+pub mod testutil;
 
 use tauri::{
     menu::{Menu, MenuItem},

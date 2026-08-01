@@ -34,7 +34,15 @@ tracing-appender = "0.2"
 dirs = "6"
 regex = "1"
 
-[dev-dependencies]
-# Scaffold contract tests (tests/scaffold.rs) parse tauri.conf.json with serde_json;
-# T0.2 error tests serialize ApiError with it too.
+# T0.3 settings store + keychain (PRD §4.2). `serde_json` moves from dev-only to a
+# normal dependency: `store::settings` deep-merges/validates raw `Value` trees, not
+# just test fixtures. `keyring` is the pinned P-3 secrets crate (service
+# "whisperspree"); `apple-native` selects the macOS Keychain backend (PRD §4.1
+# targets macOS only in v1).
 serde_json = "1"
+keyring = { version = "3", features = ["apple-native"] }
+
+[dev-dependencies]
+# Settings-store tests need real tempdirs (CLAUDE.md §3: real filesystem, not mocks)
+# for atomic-write / permissions / I/O-failure fixtures.
+tempfile = "3"
