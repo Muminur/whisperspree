@@ -20,3 +20,4 @@ for provenance per CLAUDE.md §7.
 | `dtolnay/rust-toolchain@stable` | `.github/workflows/ci.yml` (CI tooling) | Provisions the stable Rust toolchain + `rustfmt`/`clippy`/`llvm-tools-preview` for the GATE (§17.5). | T0.1 |
 | `Swatinem/rust-cache@v2` | `.github/workflows/ci.yml` (CI tooling) | Caches `src-tauri/target` to keep macOS CI minutes low (Q1 mitigation). | T0.1 |
 | `taiki-e/install-action@v2` + `cargo-llvm-cov` | `.github/workflows/ci.yml` (CI tooling) | Installs the coverage tool; report-only at T0.1, enforced from T0.2 (§17.5). | T0.1 |
+| `tempfile` | `src-tauri/Cargo.toml` (dev-dep) | Real tempdirs for `store::settings` filesystem tests (atomic write, permissions, I/O-failure fixtures) per CLAUDE.md §3 "real interfaces, not mocks" — not shipped in the app binary. | T0.3 |
