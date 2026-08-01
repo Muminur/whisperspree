@@ -2,7 +2,7 @@
 
 System-wide AI dictation for macOS. Hold a hotkey in **any** app, speak, release — clean, polished text appears in the focused text field.
 
-> **Status: v0.1.0 in development** — foundations underway: the Tauri 2 app shell (menu-bar app, HUD/Settings/History/Onboarding windows), the full CI test gate, the core error taxonomy with redacted rolling-file logging, and the settings store (atomic writes, keychain-backed API keys) are in place. Pre-built releases and the one-line installer will ship with the first tagged release. Until then, build from source (below).
+> **Status: v0.1.0 in development** — foundations underway: the Tauri 2 app shell (menu-bar app, HUD/Settings/History/Onboarding windows), the full CI test gate, the core error taxonomy with redacted rolling-file logging, the settings store (atomic writes, keychain-backed API keys), and the local SQLite history/dictionary/snippet stores with a retention job are in place. Pre-built releases and the one-line installer will ship with the first tagged release. Until then, build from source (below).
 
 ## What it does
 
