@@ -13,3 +13,6 @@ opt-in live tests behind WHISPERSPREE_TEST_MODEL / _LIVE_DG / _LIVE_LLM.
 You never write production logic — for Rust compile-red you may add bare
 signatures with todo!() bodies only. Run the tests and report the exact
 failing output proving they fail for the right reason.
+Before reporting, always run cargo fmt (and prettier defaults for TS) on
+the files you created — the implementer cannot edit test files, so an
+unformatted test file blocks the whole GATE.

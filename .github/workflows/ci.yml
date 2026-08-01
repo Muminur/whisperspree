@@ -61,10 +61,13 @@ jobs:
       - name: cargo test
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
-      # Report-only until T0.2 (TASKS.md M0 override): the scaffold is stub-only,
-      # so line coverage is not yet enforced. `--fail-under-lines 85` lands at T0.2.
-      - name: Coverage (report-only)
-        run: cargo llvm-cov --manifest-path src-tauri/Cargo.toml --ignore-filename-regex '(hotkey/|inject/macos|context/macos|audio/capture)' || true
+      # Enforced from T0.2 (TASKS.md M0 override): the first real Rust code lands
+      # here, so line coverage must stay ≥85%. The ignore set is the LOOP §2.1
+      # OS-glue modules plus the T0.2 addendum — `lib.rs` (tauri builder/tray GUI
+      # bootstrap) and `main.rs` (bin shim), which are GUI/process glue not
+      # exercisable headless.
+      - name: Coverage (enforced ≥85% lines)
+        run: cargo llvm-cov --manifest-path src-tauri/Cargo.toml --fail-under-lines 85 --ignore-filename-regex '(hotkey/|inject/macos|context/macos|audio/capture|lib\.rs|main\.rs)'
 
       - name: Hygiene gates
         run: |

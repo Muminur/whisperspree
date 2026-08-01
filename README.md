@@ -2,7 +2,7 @@
 
 System-wide AI dictation for macOS. Hold a hotkey in **any** app, speak, release — clean, polished text appears in the focused text field.
 
-> **Status: v0.1.0 in development** — foundations underway: the Tauri 2 app shell (menu-bar app, HUD/Settings/History/Onboarding windows) and the full CI test gate are in place. Pre-built releases and the one-line installer will ship with the first tagged release. Until then, build from source (below).
+> **Status: v0.1.0 in development** — foundations underway: the Tauri 2 app shell (menu-bar app, HUD/Settings/History/Onboarding windows), the full CI test gate, and the core error taxonomy with redacted rolling-file logging are in place. Pre-built releases and the one-line installer will ship with the first tagged release. Until then, build from source (below).
 
 ## What it does
 
@@ -26,7 +26,7 @@ System-wide AI dictation for macOS. Hold a hotkey in **any** app, speak, release
 **Build from source (current):**
 
 ```bash
-# prerequisites: Xcode CLT, cmake, Rust (stable), Node 20+, pnpm 9+
+# prerequisites: Xcode CLT, cmake, Rust (stable), Node 22+, pnpm 11+
 git clone https://github.com/Muminur/whisperspree.git
 cd whisperspree
 pnpm i

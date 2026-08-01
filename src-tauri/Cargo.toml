@@ -22,6 +22,19 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
 tauri-plugin-single-instance = "2"
 
+# T0.2 error taxonomy + P-3 redaction + rolling-file logging. All PRD §4.2-listed
+# (Errors: thiserror; Logging: tracing + tracing-subscriber + tracing-appender;
+# Misc: serde, dirs, regex) — no DEPENDENCIES.md entry required.
+# `env-filter` gives the `WHISPERSPREE_LOG` level control (PRD §4.2 Logging note).
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+dirs = "6"
+regex = "1"
+
 [dev-dependencies]
-# Scaffold contract tests (tests/scaffold.rs) parse tauri.conf.json with serde_json.
+# Scaffold contract tests (tests/scaffold.rs) parse tauri.conf.json with serde_json;
+# T0.2 error tests serialize ApiError with it too.
 serde_json = "1"
