@@ -5,6 +5,7 @@
 //! pipeline, …) are added by later tasks per the §11 layout.
 
 pub mod error;
+pub mod ipc;
 pub mod store;
 pub mod testutil;
 
@@ -87,6 +88,50 @@ pub fn run() {
         // Single-instance guard MUST be the first plugin so a second launch is
         // folded into the running instance before any other init (PRD §4.1).
         .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
+        .invoke_handler(tauri::generate_handler![
+            ipc::commands::get_settings,
+            ipc::commands::update_settings,
+            ipc::commands::set_api_key,
+            ipc::commands::has_api_key,
+            ipc::commands::delete_api_key,
+            ipc::commands::start_dictation,
+            ipc::commands::stop_dictation,
+            ipc::commands::cancel_dictation,
+            ipc::commands::list_models,
+            ipc::commands::download_model,
+            ipc::commands::cancel_download,
+            ipc::commands::delete_model,
+            ipc::commands::list_dictations,
+            ipc::commands::get_dictation,
+            ipc::commands::delete_dictation,
+            ipc::commands::clear_history,
+            ipc::commands::reprocess_dictation,
+            ipc::commands::get_audio_url,
+            ipc::commands::list_dictionary_entry,
+            ipc::commands::add_dictionary_entry,
+            ipc::commands::update_dictionary_entry,
+            ipc::commands::delete_dictionary_entry,
+            ipc::commands::list_snippet,
+            ipc::commands::add_snippet,
+            ipc::commands::update_snippet,
+            ipc::commands::delete_snippet,
+            ipc::commands::list_custom_prompt,
+            ipc::commands::add_custom_prompt,
+            ipc::commands::update_custom_prompt,
+            ipc::commands::delete_custom_prompt,
+            ipc::commands::list_app_rule,
+            ipc::commands::add_app_rule,
+            ipc::commands::update_app_rule,
+            ipc::commands::delete_app_rule,
+            ipc::commands::list_personas,
+            ipc::commands::list_templates,
+            ipc::commands::list_input_devices,
+            ipc::commands::test_injection,
+            ipc::commands::check_permissions,
+            ipc::commands::open_permission_pane,
+            ipc::commands::export_history,
+            ipc::commands::get_app_version,
+        ])
         .setup(|app| {
             // Menu-bar tray stub (FR-5.2): a single Quit item. Richer states and
             // the start/stop controls land with T2.6.
