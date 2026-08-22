@@ -3,8 +3,13 @@
 //! Rust-side emitters are intentionally tiny and typed. Behavior stays TODO-stub
 //! for now because §9.2 event consumers are implemented in later milestones.
 
-use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use crate::{
+    asr::AsrEvent,
+    error::{ApiError, Error},
+    pipeline::session_task::SessionTaskEvent,
+};
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter, Runtime};
 
 pub const EVENT_SESSION_STATE: &str = "session:state";
 pub const EVENT_TRANSCRIPT_PARTIAL: &str = "transcript:partial";
@@ -34,9 +39,31 @@ pub const IPC_EVENTS: [&str; 10] = [
 #[serde(rename_all = "camelCase")]
 pub struct SessionStatePayload {
     pub session_id: String,
-    pub state: String,
+    pub state: SessionState,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub engine: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub style_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionState {
+    Idle,
+    Arming,
+    Listening,
+    Finalizing,
+    PostProcessing,
+    Injecting,
+    Cancelled,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WordTiming {
+    pub w: String,
+    pub s: u32,
+    pub e: u32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -51,7 +78,7 @@ pub struct TranscriptPartialPayload {
 pub struct TranscriptSegmentPayload {
     pub session_id: String,
     pub text: String,
-    pub words: Vec<serde_json::Value>,
+    pub words: Vec<WordTiming>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -59,7 +86,7 @@ pub struct TranscriptSegmentPayload {
 pub struct TranscriptFinalPayload {
     pub session_id: String,
     pub raw_text: String,
-    pub words: Vec<serde_json::Value>,
+    pub words: Vec<WordTiming>,
     pub language: Option<String>,
 }
 
@@ -105,57 +132,168 @@ pub struct ModelDownloadProgressPayload {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppErrorPayload {
-    pub code: String,
-    pub message: String,
-    pub recoverable: bool,
+    code: String,
+    message: String,
+    recoverable: bool,
 }
 
-pub fn emit_session_state(app: &AppHandle, payload: SessionStatePayload) {
-    app.emit(EVENT_SESSION_STATE, payload)
-        .expect("emitting session:state must not fail in this skeleton");
+impl AppErrorPayload {
+    pub fn from_error(error: &Error) -> Self {
+        let api = ApiError::from(error);
+        Self {
+            code: api.code,
+            message: api.message,
+            recoverable: error.recoverable(),
+        }
+    }
 }
 
-pub fn emit_transcript_partial(app: &AppHandle, payload: TranscriptPartialPayload) {
-    app.emit(EVENT_TRANSCRIPT_PARTIAL, payload)
-        .expect("emitting transcript:partial must not fail in this skeleton");
+pub trait EventSink {
+    type Error;
+
+    fn emit<P: Serialize + Clone>(&self, event: &str, payload: P) -> Result<(), Self::Error>;
 }
 
-pub fn emit_transcript_segment(app: &AppHandle, payload: TranscriptSegmentPayload) {
-    app.emit(EVENT_TRANSCRIPT_SEGMENT, payload)
-        .expect("emitting transcript:segment must not fail in this skeleton");
+impl<R: Runtime> EventSink for AppHandle<R> {
+    type Error = tauri::Error;
+
+    fn emit<P: Serialize + Clone>(&self, event: &str, payload: P) -> Result<(), Self::Error> {
+        Emitter::emit(self, event, payload)
+    }
 }
 
-pub fn emit_transcript_final(app: &AppHandle, payload: TranscriptFinalPayload) {
-    app.emit(EVENT_TRANSCRIPT_FINAL, payload)
-        .expect("emitting transcript:final must not fail in this skeleton");
+pub fn emit_session_state<S: EventSink>(
+    sink: &S,
+    payload: SessionStatePayload,
+) -> Result<(), S::Error> {
+    sink.emit(EVENT_SESSION_STATE, payload)
 }
 
-pub fn emit_postprocess_done(app: &AppHandle, payload: PostprocessDonePayload) {
-    app.emit(EVENT_POSTPROCESS_DONE, payload)
-        .expect("emitting postprocess:done must not fail in this skeleton");
+pub fn emit_transcript_partial<S: EventSink>(
+    sink: &S,
+    payload: TranscriptPartialPayload,
+) -> Result<(), S::Error> {
+    sink.emit(EVENT_TRANSCRIPT_PARTIAL, payload)
 }
 
-pub fn emit_inject_done(app: &AppHandle, payload: InjectDonePayload) {
-    app.emit(EVENT_INJECT_DONE, payload)
-        .expect("emitting inject:done must not fail in this skeleton");
+pub fn emit_transcript_segment<S: EventSink>(
+    sink: &S,
+    payload: TranscriptSegmentPayload,
+) -> Result<(), S::Error> {
+    sink.emit(EVENT_TRANSCRIPT_SEGMENT, payload)
 }
 
-pub fn emit_audio_level(app: &AppHandle, payload: AudioLevelPayload) {
-    app.emit(EVENT_AUDIO_LEVEL, payload)
-        .expect("emitting audio:level must not fail in this skeleton");
+pub fn emit_transcript_final<S: EventSink>(
+    sink: &S,
+    payload: TranscriptFinalPayload,
+) -> Result<(), S::Error> {
+    sink.emit(EVENT_TRANSCRIPT_FINAL, payload)
 }
 
-pub fn emit_language_detected(app: &AppHandle, payload: LanguageDetectedPayload) {
-    app.emit(EVENT_LANGUAGE_DETECTED, payload)
-        .expect("emitting language:detected must not fail in this skeleton");
+pub fn emit_postprocess_done<S: EventSink>(
+    sink: &S,
+    payload: PostprocessDonePayload,
+) -> Result<(), S::Error> {
+    sink.emit(EVENT_POSTPROCESS_DONE, payload)
 }
 
-pub fn emit_model_download_progress(app: &AppHandle, payload: ModelDownloadProgressPayload) {
-    app.emit(EVENT_MODEL_DOWNLOAD_PROGRESS, payload)
-        .expect("emitting model:download:progress must not fail in this skeleton");
+pub fn emit_inject_done<S: EventSink>(
+    sink: &S,
+    payload: InjectDonePayload,
+) -> Result<(), S::Error> {
+    sink.emit(EVENT_INJECT_DONE, payload)
 }
 
-pub fn emit_app_error(app: &AppHandle, payload: AppErrorPayload) {
-    app.emit(EVENT_APP_ERROR, payload)
-        .expect("emitting app:error must not fail in this skeleton");
+pub fn emit_audio_level<S: EventSink>(
+    sink: &S,
+    payload: AudioLevelPayload,
+) -> Result<(), S::Error> {
+    sink.emit(EVENT_AUDIO_LEVEL, payload)
+}
+
+pub fn emit_language_detected<S: EventSink>(
+    sink: &S,
+    payload: LanguageDetectedPayload,
+) -> Result<(), S::Error> {
+    sink.emit(EVENT_LANGUAGE_DETECTED, payload)
+}
+
+pub fn emit_model_download_progress<S: EventSink>(
+    sink: &S,
+    payload: ModelDownloadProgressPayload,
+) -> Result<(), S::Error> {
+    sink.emit(EVENT_MODEL_DOWNLOAD_PROGRESS, payload)
+}
+
+pub fn emit_app_error<S: EventSink>(sink: &S, payload: AppErrorPayload) -> Result<(), S::Error> {
+    sink.emit(EVENT_APP_ERROR, payload)
+}
+
+/// Map one recognizer event to its typed §9.2 event. The session task owns the
+/// session id; this adapter owns only wire-shape conversion and propagation of
+/// emitter failures.
+pub fn emit_asr_event<S: EventSink>(
+    sink: &S,
+    session_id: &str,
+    event: AsrEvent,
+) -> Result<(), S::Error> {
+    match event {
+        AsrEvent::Partial { text } => emit_transcript_partial(
+            sink,
+            TranscriptPartialPayload {
+                session_id: session_id.into(),
+                text,
+            },
+        ),
+        AsrEvent::Segment { text, words } => emit_transcript_segment(
+            sink,
+            TranscriptSegmentPayload {
+                session_id: session_id.into(),
+                text,
+                words,
+            },
+        ),
+        AsrEvent::LanguageDetected { code, confidence } => {
+            emit_language_detected(sink, LanguageDetectedPayload { code, confidence })
+        }
+        AsrEvent::Error { error } => emit_app_error(sink, AppErrorPayload::from_error(&error)),
+    }
+}
+
+/// Surface a completed session-task output through the typed §9.2 helpers.
+///
+/// This adapter is deliberately side-effect-free beyond the supplied event
+/// sink: the macOS runtime may call it from its session thread, while tests use
+/// a deterministic recording sink. Coordinator state transitions remain owned
+/// by the coordinator; `Cancelled` is the only terminal session-task outcome
+/// that has a direct §9.2 state representation here.
+pub fn emit_session_task_event<S: EventSink>(
+    sink: &S,
+    session_id: &str,
+    event: SessionTaskEvent,
+) -> Result<(), S::Error> {
+    match event {
+        SessionTaskEvent::Asr(event) => emit_asr_event(sink, session_id, event),
+        SessionTaskEvent::Final(transcript) => emit_transcript_final(
+            sink,
+            TranscriptFinalPayload {
+                session_id: session_id.into(),
+                raw_text: transcript.text,
+                words: transcript.words,
+                language: transcript.language,
+            },
+        ),
+        SessionTaskEvent::Cancelled => emit_session_state(
+            sink,
+            SessionStatePayload {
+                session_id: session_id.into(),
+                state: SessionState::Cancelled,
+                engine: None,
+                style_id: None,
+            },
+        ),
+        SessionTaskEvent::Failed(error) => {
+            emit_app_error(sink, AppErrorPayload::from_error(&error))
+        }
+    }
 }
