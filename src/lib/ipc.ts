@@ -79,6 +79,7 @@ export interface ModelInfo {
   id: string;
   label: string;
   sizeBytes: number;
+  installed: boolean;
   path?: string;
 }
 
@@ -169,6 +170,94 @@ export const IPC_EVENTS = [
 export type IpcCommand = (typeof IPC_COMMANDS)[number];
 export type IpcEvent = (typeof IPC_EVENTS)[number];
 
+export interface SessionStatePayload {
+  sessionId: string;
+  state:
+    | "idle"
+    | "arming"
+    | "listening"
+    | "finalizing"
+    | "post_processing"
+    | "injecting"
+    | "cancelled"
+    | "error";
+  engine?: string;
+  styleId?: string;
+  notice?: string;
+}
+
+export interface TranscriptPartialPayload {
+  sessionId: string;
+  text: string;
+}
+
+export interface WordTiming {
+  w: string;
+  s: number;
+  e: number;
+}
+
+export interface TranscriptSegmentPayload {
+  sessionId: string;
+  text: string;
+  words: WordTiming[];
+}
+
+export interface TranscriptFinalPayload {
+  sessionId: string;
+  rawText: string;
+  words: WordTiming[];
+  language: string | null;
+}
+
+export interface PostprocessDonePayload {
+  sessionId: string;
+  text: string;
+  personaId: string;
+  fallbackUsed: boolean;
+  latencyMs: number;
+}
+
+export interface InjectDonePayload {
+  sessionId: string;
+  method: string;
+}
+
+export interface AudioLevelPayload {
+  rms: number;
+  peak: number;
+}
+
+export interface LanguageDetectedPayload {
+  code: string;
+  confidence: number;
+}
+
+export interface ModelDownloadProgressPayload {
+  id: string;
+  received: number;
+  total: number;
+}
+
+export interface AppErrorPayload {
+  code: string;
+  message: string;
+  recoverable: boolean;
+}
+
+export interface IpcEventPayloads {
+  "session:state": SessionStatePayload;
+  "transcript:partial": TranscriptPartialPayload;
+  "transcript:segment": TranscriptSegmentPayload;
+  "transcript:final": TranscriptFinalPayload;
+  "postprocess:done": PostprocessDonePayload;
+  "inject:done": InjectDonePayload;
+  "audio:level": AudioLevelPayload;
+  "language:detected": LanguageDetectedPayload;
+  "model:download:progress": ModelDownloadProgressPayload;
+  "app:error": AppErrorPayload;
+}
+
 export function getSettings(): Promise<Settings> {
   return invoke("get_settings");
 }
@@ -233,7 +322,12 @@ export function clearHistory(): Promise<number> {
   return invoke("clear_history");
 }
 
-export function reprocessDictation(input: ReprocessOptions): Promise<{ text: string }> {
+export function reprocessDictation(
+  id: string,
+  kind: ReprocessOptions["kind"],
+  refId: string,
+): Promise<{ text: string }> {
+  const input: ReprocessOptions = { id, kind, refId };
   return invoke("reprocess_dictation", { input });
 }
 

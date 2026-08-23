@@ -1,1 +1,25 @@
 @import "tailwindcss";
+
+/* T2.4 HUD: native transparency/non-focus behavior is configured in Tauri;
+   these styles only draw the compact status pill. */
+.hud-window { height: 100%; width: 100%; display: grid; place-items: center; }
+.hud-pill {
+  position: relative; display: flex; align-items: center; min-height: 42px;
+  max-width: 308px; padding: 9px 13px; border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 999px; background: rgb(19 24 34 / 92%); color: #f8fafc;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 28%); font: 500 12px/1.2 ui-sans-serif, system-ui, sans-serif;
+}
+.hud-listening, .hud-status { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.hud-listening-dot { width: 8px; height: 8px; flex: none; border-radius: 999px; background: #4ade80; animation: hud-pulse 1.2s ease-in-out infinite; }
+.hud-meter { display: flex; align-items: center; gap: 2px; height: 20px; flex: none; }
+.hud-level-bar { width: 3px; height: 6px; border-radius: 2px; background: rgb(148 163 184 / 38%); }
+.hud-level-bar:nth-child(3n) { height: 10px; }.hud-level-bar:nth-child(4n) { height: 15px; }
+.hud-level-bar[data-active="true"] { background: #4ade80; }
+.hud-ticker { overflow: hidden; white-space: nowrap; text-overflow: clip; color: #e2e8f0; }
+.hud-badge { flex: none; border-radius: 999px; padding: 2px 5px; background: rgb(148 163 184 / 20%); color: #cbd5e1; font-size: 10px; }
+.hud-spinner { width: 12px; height: 12px; border: 2px solid rgb(255 255 255 / 30%); border-top-color: #f8fafc; border-radius: 999px; animation: hud-spin .7s linear infinite; }
+.hud-error { border-radius: 999px; padding: 4px 7px; color: #fecaca; background: rgb(127 29 29 / 80%); }
+.hud-quick-menu { position: absolute; bottom: calc(100% + 7px); display: flex; gap: 5px; padding: 5px; border: 1px solid rgb(255 255 255 / 16%); border-radius: 10px; background: rgb(19 24 34 / 96%); white-space: nowrap; }
+.hud-quick-menu button { border: 0; border-radius: 6px; padding: 5px 7px; color: #e2e8f0; background: transparent; font: inherit; cursor: pointer; }.hud-quick-menu button:hover { background: rgb(148 163 184 / 20%); }
+@keyframes hud-pulse { 50% { opacity: .35; transform: scale(.75); } }
+@keyframes hud-spin { to { transform: rotate(360deg); } }

@@ -1,6 +1,6 @@
 # OPEN_QUESTIONS.md — WhisperSpree
 
-Entry format: PRD §16.4. Standing resolutions are read at session start (CLAUDE.md §1).
+Entry format: PRD §16.4. Standing resolutions are read at session start.
 
 ## Q1 — Private repo vs macOS CI minutes (status: RESOLVED)
 Task: T0.0   PRD: §17.5 / LOOP §6
@@ -12,10 +12,10 @@ Resolution: 2026-07-23 — first CI run was blocked by the billing/spending limi
 
 ## Q5 — CI Node version: LOOP §6 says Node 20, pnpm 11 needs ≥22.13 (status: RESOLVED)
 Task: T0.1   PRD: §4.1 / §17.5 (PLANNING §6: "Node.js 20+")
-Context: The repo's pinned package manager (packageManager: pnpm@11.15.1, required by the local toolchain) uses the node:sqlite builtin and refuses Node < 22.13. CI on Node 20 fails at "Set up Node" (ERR_UNKNOWN_BUILTIN_MODULE, observed run 29957398582).
+Context: The repo's pinned package manager was `pnpm@11.15.1` (node>=22.13) while LOOP/PRD allows Node 20+, so CI on Node 20 could fail at toolchain setup.
 Options: A) CI matrix Node 22 LTS (PRD "20+" permits it) B) downgrade pnpm to 10 (risks lockfile/toolchain drift vs the dev machine).
-Chosen (conservative): A — CI runs Node 22; dev machine runs 24; PRD floor stays 20+. Marker: none (CI config).
-Resolution: Node 22 in the CI matrix; revisit only if PRD pins an exact version.
+Chosen (conservative): A was used for early bootstrap stability, then corrected by T0.5 remediation to keep Node at 20+ with an engine-compatible pnpm 10.x path for CI.
+Resolution: `packageManager` is now `pnpm@10.34.0`, `.github/workflows/ci.yml` pins `pnpm/action-setup` to `10.34.0`, and CI runs Node 20.
 
 ## Q6 — §14 has no explicit `recoverable` column; mapping derived (status: RESOLVED)
 Task: T0.2   PRD: §14 / §9.2 (`app:error {recoverable}`)
@@ -46,8 +46,8 @@ Chosen (conservative): B — T0.1 sets the declarative flags only; T2.4 (HUD fea
 Resolution: R0 must not fail T0.1 for missing native click-through; T2.4 acceptance covers it.
 
 ## Q4 — Keychain access in tests (status: RESOLVED)
-Task: T0.3   PRD: §4.2 / §12 P-3 / CLAUDE.md §3
-Context: `keyring` hits the real macOS keychain, which can prompt or fail headless — CI cannot grant that permission. Keychain is an OS-permission surface under CLAUDE.md §3.
+Task: T0.3   PRD: §4.2 / §12 P-3 / PRD §17.3
+Context: `keyring` hits the real macOS keychain, which can prompt or fail headless — CI cannot grant that permission. Keychain is an OS-permission surface under PRD §17.3.
 Options: A) real keychain in tests B) `KeyStore` trait with in-memory double by default; real keyring impl exercised only by an `#[ignore]` opt-in test.
 Chosen (conservative): B. Marker: // PRD-QUESTION(Q4) at the KeyStore trait definition.
 Resolution: standing test strategy for all keychain-touching code.
@@ -58,6 +58,21 @@ Context: T0.3 raises three error paths the closed 14-code §14 matrix does not n
 Options: A) invent a new `SET-IO` / `KEY-IO` code B) map (a)+(b) to `DB-IO` by broadening it to "local persistence"; treat (c) as validation, not an error.
 Chosen (conservative): B — (a)+(b) → `DB-IO` (the only local-persistence-failure code; its recovery column "non-blocking toast" fits; recoverable=true per Q6). (c) is not an error: `validate()` clamps numerics and drops invalid enums/accelerators, keeping the prior valid value, and `update_settings` returns the resulting `Settings` — mirrors §8.3 "unknown fields preserved on rewrite". A bad patch never corrupts the file — but note `validate()` alone does NOT achieve that: it guards enums and numeric floors, not field *types*, so `update()` must additionally prove the merged value round-trips (`serde_json::from_value`) **before** `atomic_write` touches disk. Without that guard a patch like `{"version":"notanumber"}` is persisted and then permanently breaks every later `get_settings` with `DB-IO`. Marker: `// PRD-QUESTION(Q8)` at the `DbIo` map helper in `store/mod.rs` (a+b) and at `validate()` in `store/settings.rs` (c).
 Resolution: pinned by tests `settings::settings_write_io_failure_maps_db_io`, `keychain::keystore_failure_maps_db_io`, `settings::validate_clamps_timeout_ms`, `settings::validate_rejects_invalid_hotkey_keeps_previous`, and — for the no-corruption invariant specifically — `settings::update_type_invalid_patch_does_not_corrupt_file` / `settings::update_type_invalid_nested_patch_does_not_corrupt_file`; revisit if a later PRD version adds a persistence/validation code.
+
+## Q16 — Normative §11 ownership paths versus incremental implementation modules (status: RESOLVED)
+Task: R0   PRD: §11
+Context: The first implementation slices landed before the normative §11 paths were fully materialized. R0 requires those paths to be real, not merely documented exceptions.
+Chosen resolution: the session coordinator is owned by `pipeline/session.rs`; capture bridge helpers remain in their dedicated sibling modules. HUD and onboarding are directory-based with `Hud.tsx`, `LevelMeter.tsx`, `Ticker.tsx`, `QuickMenu.tsx`, `Onboarding.tsx`, and `steps/PermissionStep.tsx`; compatibility index modules preserve existing imports. This is a behavior-neutral structural refactor covered by the existing feature tests.
+
+## Q17 — State and network module ownership versus the §11 digest (status: RESOLVED)
+Task: R0   PRD: §11
+Context: The IPC skeleton initially kept `IpcState` beside its command adapters in `ipc/commands.rs`, while the network guard remained a small policy boundary under `network/`.
+Chosen resolution: `IpcState` is now defined in the normative top-level `state.rs`; `ipc/commands.rs` re-exports it only for compatibility. `network/guard.rs` remains the dedicated network-policy boundary used by model-download/provider tests. The state move is behavior-neutral and does not duplicate the dependency graph.
+
+## Q18 — Internal illegal transitions and the closed §14 wire taxonomy (status: RESOLVED)
+Task: R0   PRD: §5.2 / §14
+Context: §5.2 requires a distinct internal `IllegalTransition` state-machine error, while §14 exposes no public state-transition code. Returning an invented wire code would violate the closed taxonomy and changing DB-IO would break the pinned 14-code contract.
+Chosen conservative resolution: retain `Error::IllegalTransition` as an internal diagnostic variant and map it to the existing recoverable `DB-IO` wire code at the API boundary, preserving the detailed redacted message for logs/tests. This is a compatibility mapping, not a claim that the underlying failure is SQLite; a future PRD error-code addition should replace it. Marker: `// PRD-QUESTION(Q18)` at `Error::code()`.
 
 ## Q9 — §11 does not enumerate the four lookup-table stores (status: RESOLVED)
 Task: T0.4   PRD: §11 / §8.1
@@ -86,3 +101,21 @@ Context: §8.1's `0001_init.sql` begins with `PRAGMA journal_mode = WAL;` and `P
 Options: A) run migrations outside a transaction (loses atomicity — a partially-applied migration would persist) B) keep the transaction and filter PRAGMA lines out of the *executed* text, leaving the on-disk `.sql` byte-identical to §8.1.
 Chosen (conservative): B — atomicity of migrations matters more than executing two statements that `db::open` already applies per-connection. The on-disk migration file stays byte-identical to §8.1 for spec fidelity; only the in-memory text is filtered. Nothing is lost: `journal_mode`/`foreign_keys` are applied by `db::open` on every connection, which is strictly stronger than relying on the migration (which runs only once, on a fresh DB). Marker: `// PRD-QUESTION(Q12)` at the filter helper in `store/db.rs`.
 Resolution: **Standing rule for future migration authors** — a migration file must not depend on a PRAGMA taking effect, because PRAGMA lines are stripped before execution. In particular the common SQLite table-rebuild pattern that wraps work in `PRAGMA foreign_keys=OFF` … `PRAGMA foreign_keys=ON` would be silently defeated. The filter therefore accepts ONLY `journal_mode` and `foreign_keys` and returns an error for any other PRAGMA, so a future migration relying on one fails loudly at apply time instead of corrupting data silently.
+
+## Q13 — Which registered T0.5 commands become functional in the IPC skeleton? (status: RESOLVED)
+Task: T0.5   PRD: §8.3 / §9.1 / §15.3
+Context: T0.5 registers every §9.1 command and permits unimplemented commands to return `TODO`. T0.3 explicitly deferred only the thin Tauri wrappers for its completed settings/key commands to T0.5, while T0.4 deferred command registration for its stores. The later frozen task table, however, assigns the public behavior for custom prompts/rules to T4.2, dictionary to T5.1, snippets to T5.2, history/export to T6.1, and audio URLs to T6.2. §9.1 does not yet define those families' add/update payloads, ID/timestamp ownership, missing-ID errors, safe export destination behavior, or audio asset-scope/path semantics.
+Options: A) make every command with any backing store functional in T0.5, inventing the missing public behavior B) make only the fully specified T0.3 settings/keychain handoff functional now and retain explicit `TODO` stubs for later-owned command families.
+Chosen (conservative): B — T0.5 implements real adapters for `get_settings`, `update_settings`, `set_api_key`, `has_api_key`, and `delete_api_key`. `update_settings` persists and returns the validated settings now; live side effects whose managers do not exist yet (for example hotkey re-registration) remain with their owning later tasks. T0.4-backed history, dictionary, snippet, custom-prompt, app-rule, export, and audio-URL commands remain registered `TODO` stubs until T4.2/T5.1/T5.2/T6.1/T6.2 supplies their complete contracts and security boundaries. Marker: `// PRD-QUESTION(Q13)` beside the deferred command group in `ipc/commands.rs`.
+Resolution: pin the five functional adapters with real Tauri command-dispatch tests over a temporary settings directory and the sanctioned keychain double; keep deterministic tests that every deferred command still returns its named `TODO` error. Revisit only if the frozen PRD supplies the missing payload/error/path contracts or reassigns the later task ownership.
+
+## Q14 — Gated-audio source offsets at the ASR trait boundary (status: OPEN)
+Task: T1.4   PRD: §8.2 / §9.3
+Context: `SpeechRecognizer::feed(&[f32])` receives only confirmed speech samples, while §8.2 word timings are offsets from the original utterance start. The trait has no source offset or suppressed-silence duration, so the local engine can guarantee monotonic gated-stream offsets but cannot yet reconstruct exact wall-clock offsets across VAD gaps.
+Chosen conservative interim: keep the normative trait unchanged; T1.5 must supply endpoint/source-timeline context around the local-only endpoint control before replay-accurate timings are claimed. T1.6 owns the real-model golden; no network or model loading is introduced here. Marker: `// PRD-QUESTION(Q14)` at the eventual session/timeline adapter.
+
+## Q15 — Production construction of the R1 dictation runtime (status: OPEN)
+Task: R1   PRD: §5.2, §5.4, §9.1–§9.3, §11
+Context: the control boundary now has a real macOS `MacSessionRuntime`, CPAL capture/session-task/VAD/ASR composition, verified model resolution, and a Tauri AppHandle-backed §9.2 event sink. Deterministic tests cover each boundary and the full Rust suite is green. The remaining uncertainty is the live desktop bootstrap: opening a physical device with granted permissions, propagating every coordinator transition through the same sink, and validating release-to-injection behavior on macOS hardware. The non-macOS fallback remains intentionally unavailable.
+Options: A) invent a macOS context/model/capture factory now B) retain the testable runtime-injection seam and assign the missing adapters to their owning feature tasks.
+Chosen interim: retain `IpcState::with_runtime` as the deterministic injection seam while the macOS factory is exercised under real permissions. `IpcState::new` now selects `MacSessionRuntime` on macOS, installs the AppHandle event sink during Tauri setup, and keeps `UnavailableDictationRuntime` only for unsupported targets. Physical-device permission/bootstrap validation remains an R1/QA responsibility; no network or model download is introduced by startup.

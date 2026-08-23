@@ -1,0 +1,14 @@
+{
+  "type": "Results",
+  "channel": {
+    "alternatives": [{
+      "transcript": "hello world",
+      "words": [
+        {"word": "hello", "start": 0.125, "end": 0.500, "confidence": 0.99},
+        {"word": "world", "start": 0.550, "end": 1.125, "confidence": 0.98}
+      ]
+    }],
+    "detected_language": "en"
+  },
+  "is_final": true
+}

@@ -223,7 +223,7 @@ fn pragma_name(trimmed_line: &str) -> Option<String> {
 
 // ---------------------------------------------------------------------------
 // Tests (colocated so `cargo test store::` / `cargo test db::` filters here).
-// Real SQLite in tempdirs throughout — no mocks (CLAUDE.md §3).
+// Real SQLite in tempdirs throughout — no mocks (PRD §17.3).
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -362,7 +362,7 @@ mod tests {
     /// This pins `strip_pragma_lines` to the signature it MUST have —
     /// `Result<String, Error>`, mapping the rejection to `DB-IO` (§14) — not
     /// the current infallible `String`. Intentionally red at compile time
-    /// until the implementer reshapes the function to match (CLAUDE.md §3:
+    /// until the implementer reshapes the function to match (PRD §17.3:
     /// tests-first; write the interface the way it should work).
     #[test]
     fn migration_with_unsupported_pragma_is_rejected() {

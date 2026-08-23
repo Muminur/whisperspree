@@ -1,0 +1,9 @@
+{
+  "type": "Results",
+  "channel": {
+    "alternatives": [{
+      "transcript": "hello wor"
+    }]
+  },
+  "is_final": false
+}

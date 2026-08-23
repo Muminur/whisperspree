@@ -1,0 +1,6 @@
+Target application: Slack (default context). 
+Raw transcript:
+<<<
+um ship ⟦S0⟧ today
+thanks
+>>>

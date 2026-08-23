@@ -1,4 +1,4 @@
-// T0.1 — frontend window-router shells (RED phase, tests-first per CLAUDE.md §3).
+// T0.1 — frontend window-router shells (RED phase, tests-first per PRD §17.3).
 //
 // PRD refs: FR-5.2 (§6) — WhisperSpree ships four distinct window shells (HUD,
 // Settings, History, Onboarding) plus a `main` fallback. §11 lists them under
@@ -25,6 +25,8 @@ import { cleanup, render, screen } from "@testing-library/react";
 
 // This import is expected to FAIL until src/windows.tsx is implemented (T0.1 green).
 import { Windows } from "./windows";
+import { Settings } from "./windows/settings/Settings";
+import { History } from "./windows/history/History";
 
 // The vitest config does not set `globals: true`, so RTL's auto-cleanup is not
 // registered — do it explicitly to keep the jsdom container clean per test.
@@ -40,6 +42,17 @@ const KNOWN_LABELS = [
 ] as const;
 
 describe("Windows router (FR-5.2)", () => {
+  it("fr_5_2_settings_and_history_shells_are_owned_by_normative_window_modules", () => {
+    render(
+      <>
+        <Settings />
+        <History />
+      </>,
+    );
+    expect(screen.getByTestId("window-settings")).toBeInTheDocument();
+    expect(screen.getByTestId("window-history")).toBeInTheDocument();
+  });
+
   it("fr_5_2_hud_shell_renders_for_hud_label", () => {
     render(<Windows label="hud" />);
     expect(screen.getByTestId("window-hud")).toBeInTheDocument();

@@ -372,19 +372,21 @@ pub fn retention_sweep(conn: &Connection, retention_days: u32) -> Result<Vec<Pat
         }
     }
 
+    // Unlink before deleting the database row. If a confined audio asset cannot
+    // be removed, preserve the row so a later sweep can retry instead of
+    // orphaning private audio with no database reference (§12 P-6).
+    for path in &audio_paths {
+        if let Some(confined) = confine_to_audio_dir(conn, &path.to_string_lossy()) {
+            if let Err(error) = std::fs::remove_file(confined) {
+                tracing::warn!(code = "DB-IO", %error, "history audio unlink failed");
+                return Err(Error::DbIo(format!("history audio unlink failed: {error}")));
+            }
+        }
+    }
+
     for id in &expired_ids {
         conn.execute("DELETE FROM dictations WHERE id = ?1", [id])
             .map_err(|e| super::db_io("retention_sweep delete", e))?;
-    }
-
-    // Best-effort unlink (§12 P-6), confined to the app's own audio directory
-    // (security review B1): a missing/unremovable/out-of-bounds file must
-    // never fail the sweep, and confinement never blocks the row cleanup
-    // above — it only guards the filesystem.
-    for path in &audio_paths {
-        if let Some(confined) = confine_to_audio_dir(conn, &path.to_string_lossy()) {
-            let _ = std::fs::remove_file(confined);
-        }
     }
 
     Ok(audio_paths)
@@ -530,7 +532,7 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 // Tests (colocated so `cargo test store::` / `cargo test history::` filters
 // here). Real SQLite in tempdirs throughout, opened via `super::db::open` so
 // the per-connection `foreign_keys` PRAGMA trap is exercised for real
-// (CLAUDE.md §3 — no mocks; no inline `PRAGMA foreign_keys=ON` in these
+// (PRD §17.3 — no mocks; no inline `PRAGMA foreign_keys=ON` in these
 // tests, or the FK-off trap could never fail loudly).
 // ---------------------------------------------------------------------------
 
@@ -971,6 +973,29 @@ mod tests {
             "a file genuinely under the app's own audio directory must still be unlinked — the \
              confinement guard must not refuse everything"
         );
+    }
+
+    #[test]
+    fn ec_6_2_unlink_failure_preserves_row_for_retry() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let conn = open_test_db(tmp.path());
+        let audio_dir = tmp.path().join("audio");
+        std::fs::create_dir_all(&audio_dir).expect("create audio dir");
+        let directory = audio_dir.join("not-a-file");
+        std::fs::create_dir_all(&directory).expect("create directory at audio path");
+
+        let mut row = sample_dictation("dict-unlink-failure", "2000-01-01T00:00:00Z");
+        row.audio_path = Some(directory.to_string_lossy().into_owned());
+        insert_dictation(&conn, &row).expect("insert expired row");
+
+        assert!(retention_sweep(&conn, 30).is_err());
+        assert!(
+            get_dictation(&conn, "dict-unlink-failure")
+                .expect("read row after failed sweep")
+                .is_some(),
+            "an unlink failure must preserve the DB row so retention can retry"
+        );
+        assert!(directory.exists());
     }
 
     /// AC: §8.1 retention job — dictations older than the cutoff are deleted

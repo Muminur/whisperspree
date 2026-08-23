@@ -138,6 +138,7 @@ fn fr_1_1_session_task_events_surface_asr_final_cancel_and_failure_through_ipc_h
     )
     .unwrap();
     events::emit_session_task_event(&sink, "session-1", SessionTaskEvent::Cancelled).unwrap();
+    events::emit_session_task_event(&sink, "session-1", SessionTaskEvent::SilenceOnly).unwrap();
     events::emit_session_task_event(
         &sink,
         "session-1",
@@ -159,6 +160,10 @@ fn fr_1_1_session_task_events_surface_asr_final_cancel_and_failure_through_ipc_h
             (
                 "session:state".into(),
                 json!({ "sessionId": "session-1", "state": "cancelled" })
+            ),
+            (
+                "session:state".into(),
+                json!({ "sessionId": "session-1", "state": "cancelled", "notice": "Didn't catch anything" })
             ),
             (
                 "app:error".into(),
@@ -199,6 +204,7 @@ fn fr_0_5_event_helpers_emit_exact_event_and_payload_through_project_sink() {
             state: events::SessionState::Listening,
             engine: Some("local".into()),
             style_id: None,
+            notice: None,
         },
     )
     .unwrap();
@@ -327,7 +333,8 @@ fn fr_0_5_every_event_helper_returns_sink_failure_without_panic() {
             session_id: "session-1".into(),
             state: events::SessionState::Idle,
             engine: None,
-            style_id: None
+            style_id: None,
+            notice: None
         },
         "session:state"
     );

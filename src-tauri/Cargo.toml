@@ -21,6 +21,8 @@ tauri-build = { version = "2", features = [] }
 # (Tauri 2.x shell + tray).
 tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
 tauri-plugin-single-instance = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-global-shortcut = "2"
 
 # T0.2 error taxonomy + P-3 redaction + rolling-file logging. All PRD §4.2-listed
 # (Errors: thiserror; Logging: tracing + tracing-subscriber + tracing-appender;
@@ -33,6 +35,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 dirs = "6"
 regex = "1"
+unicode-normalization = "0.1"
 
 # T0.3 settings store + keychain (PRD §4.2). `serde_json` moves from dev-only to a
 # normal dependency: `store::settings` deep-merges/validates raw `Value` trees, not
@@ -46,7 +49,56 @@ keyring = { version = "3", features = ["apple-native"] }
 # machines need no system libsqlite3 — matches the pinned crate+feature exactly.
 rusqlite = { version = "0.31", features = ["bundled"] }
 
+# T1.1 audio capture + resampling (PRD §4.2, §5.4, FR-1.1).
+cpal = "0.15"
+rubato = "0.15"
+# T1.2 VAD gating (PRD §4.2 / FR-1.1.c): 30 ms WebRTC speech classification.
+webrtc-vad = "0.4"
+
+# T1.3 local model manager (§4.2 / §10.3): streaming HTTPS download and
+# SHA-256 verification before an atomically promoted model becomes selectable.
+reqwest = { version = "0.12", features = ["stream", "json"] }
+sha2 = "0.10"
+
+# T1.4 local ASR (§5.4 / §9.3): the trait surface and serialized CPU-bound
+# decode worker use Tokio. `async-trait` expresses the pinned async trait API.
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+# T1.4 (§4.2 / FR-1.1.b): local, model-file-only Whisper.cpp bindings. Model
+# installation remains ModelManager's verified, explicit operation.
+whisper-rs = "0.16"
+
+# T2.1 global push-to-talk capture (§5.4 / FR-1.3). `rdev` listens to raw
+# input independently of focus; the hotkey module forwards its events over an
+# mpsc channel and never performs session work on the listener callback.
+rdev = "0.5"
+# macOS frontmost application/window snapshot behind `context::FrontmostSnapshot`.
+active-win-pos-rs = "0.8"
+
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
+# PRD §4.2 requires Metal acceleration only on macOS Apple Silicon; Intel uses
+# the CPU whisper backend as required by PLANNING §1.
+whisper-rs = { version = "0.16", features = ["metal"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# T2.2 OS-permission boundaries. These are only linked in the macOS desktop
+# build; policy tests use the injected Clipboard/Typist/PasteVerifier traits.
+# arboard remains declared for the AC-1.4 automated clipboard checks in the
+# QA-2 harness; the production adapter speaks NSPasteboard directly.
+arboard = "3.6.1"
+enigo = "0.2"
+# T2.2 native pasteboard fidelity (FR-1.4 / docs/DEPENDENCIES.md): arboard
+# exposes neither NSPasteboard changeCount, the public.rtf flavor, nor a true
+# clearContents; objc2-app-kit provides all three behind the §9.3 Clipboard
+# boundary. Versions match the transitive tauri/wry tree — no lockfile drift.
+objc2-foundation = { version = "0.3", default-features = false, features = ["NSString", "NSData"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["NSPasteboard"] }
+
 [dev-dependencies]
-# Settings-store tests need real tempdirs (CLAUDE.md §3: real filesystem, not mocks)
+# T0.5's command-envelope tests use Tauri's supported MockRuntime helpers.
+# Keep `test` dev-only so desktop release dependency features remain unchanged.
+tauri = { version = "2", features = ["test"] }
+
+# Settings-store tests need real tempdirs (PRD §17.3: real filesystem, not mocks)
 # for atomic-write / permissions / I/O-failure fixtures.
 tempfile = "3"

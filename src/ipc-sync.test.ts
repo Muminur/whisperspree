@@ -6,4 +6,3 @@ describe("IPC contract sync", () => {
     await verifyIpcSync();
   });
 });
-

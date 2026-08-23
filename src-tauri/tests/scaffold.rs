@@ -1,7 +1,7 @@
 //! T0.1 — Tauri scaffold contract (RED phase).
 //!
 //! These integration tests are written **before** the scaffold exists
-//! (CLAUDE.md §3, TDD). They read the config files the implementer must
+//! (PRD §17.3, TDD). They read the config files the implementer must
 //! create and assert on their content. Until those files exist, every test
 //! must fail with a clear "…missing — scaffold not implemented (T0.1)"
 //! panic (a missing artifact, NOT a compile error).
@@ -216,6 +216,24 @@ fn scaffold_single_instance_plugin_registered() {
     assert!(
         cargo.contains("tauri-plugin-single-instance"),
         "§4.1 / T0.1: Cargo.toml must depend on tauri-plugin-single-instance"
+    );
+}
+
+/// PRD §4.1 / FR-1.3: toggle accelerators must use the official global-shortcut
+/// plugin in the same Tauri builder as the single-instance guard.
+#[test]
+fn scaffold_global_shortcut_plugin_registered() {
+    let lib = fs::read_to_string(manifest_dir().join("src/lib.rs"))
+        .expect("T2.1: src-tauri/src/lib.rs must exist");
+    let cargo = fs::read_to_string(manifest_dir().join("Cargo.toml"))
+        .expect("T2.1: src-tauri/Cargo.toml must exist");
+    assert!(
+        lib.contains("tauri_plugin_global_shortcut"),
+        "PRD §4.1 / T2.1: lib.rs must register the global-shortcut plugin"
+    );
+    assert!(
+        cargo.contains("tauri-plugin-global-shortcut"),
+        "PRD §4.1 / T2.1: Cargo.toml must depend on tauri-plugin-global-shortcut"
     );
 }
 

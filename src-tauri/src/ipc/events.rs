@@ -44,6 +44,8 @@ pub struct SessionStatePayload {
     pub engine: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub style_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notice: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -290,6 +292,17 @@ pub fn emit_session_task_event<S: EventSink>(
                 state: SessionState::Cancelled,
                 engine: None,
                 style_id: None,
+                notice: None,
+            },
+        ),
+        SessionTaskEvent::SilenceOnly => emit_session_state(
+            sink,
+            SessionStatePayload {
+                session_id: session_id.into(),
+                state: SessionState::Cancelled,
+                engine: None,
+                style_id: None,
+                notice: Some("Didn't catch anything".into()),
             },
         ),
         SessionTaskEvent::Failed(error) => {

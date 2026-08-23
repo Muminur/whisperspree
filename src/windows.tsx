@@ -7,6 +7,11 @@
 // runtime here) so this component stays Tauri-free and unit-testable; never
 // call `getCurrentWindow()` inside `Windows`.
 
+import { HudEventWindow } from "./windows/hud";
+import { History } from "./windows/history";
+import { OnboardingWindow } from "./windows/onboarding";
+import { Settings } from "./windows/settings";
+
 /**
  * Route a window `label` to its shell.
  *
@@ -20,27 +25,19 @@ export function Windows({ label }: { label: string }) {
       return (
         <div
           data-testid="window-hud"
-          className="flex h-full w-full items-center justify-center bg-transparent text-sm"
+          className="h-full w-full bg-transparent"
         >
-          HUD
+          <HudEventWindow />
         </div>
       );
     case "settings":
-      return (
-        <div data-testid="window-settings" className="h-full w-full p-4">
-          Settings
-        </div>
-      );
+      return <Settings />;
     case "history":
-      return (
-        <div data-testid="window-history" className="h-full w-full p-4">
-          History
-        </div>
-      );
+      return <History />;
     case "onboarding":
       return (
-        <div data-testid="window-onboarding" className="h-full w-full p-4">
-          Onboarding
+        <div data-testid="window-onboarding" className="h-full w-full">
+          <OnboardingWindow />
         </div>
       );
     default:
