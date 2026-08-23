@@ -1,0 +1,23 @@
+name: Pull request policy
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  policy:
+    runs-on: macos-14
+    steps:
+      - name: Checkout trusted base revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Secret staged raw-blob policy
+        run: scripts/check_ci_staged_policy.sh pull_request "${GITHUB_EVENT_PATH}" "${GITHUB_WORKSPACE}" --trusted-manifest .repo-policy-secret-exceptions.json
+      - name: Verify attribution metadata
+        run: scripts/check_ci_attribution.sh pull_request "${GITHUB_EVENT_PATH}" "${GITHUB_WORKSPACE}"
