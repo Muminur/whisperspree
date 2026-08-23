@@ -21,6 +21,7 @@ tauri-build = { version = "2", features = [] }
 # (Tauri 2.x shell + tray).
 tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
 tauri-plugin-single-instance = "2"
+tauri-plugin-autostart = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-global-shortcut = "2"
 
@@ -91,6 +92,7 @@ enigo = "0.2"
 # exposes neither NSPasteboard changeCount, the public.rtf flavor, nor a true
 # clearContents; objc2-app-kit provides all three behind the §9.3 Clipboard
 # boundary. Versions match the transitive tauri/wry tree — no lockfile drift.
+objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["NSString", "NSData"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["NSPasteboard"] }
 

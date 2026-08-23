@@ -290,3 +290,19 @@ fn scaffold_vite_dev_server_port_1420() {
         "§4.1 / T0.1: Vite must set strictPort so Tauri's fixed devUrl matches"
     );
 }
+
+#[test]
+fn scaffold_autostart_plugin_registered() {
+    let lib = fs::read_to_string(manifest_dir().join("src/lib.rs"))
+        .expect("T2.6: src-tauri/src/lib.rs must exist");
+    let cargo = fs::read_to_string(manifest_dir().join("Cargo.toml"))
+        .expect("T2.6: src-tauri/Cargo.toml must exist");
+    assert!(
+        lib.contains("tauri_plugin_autostart"),
+        "PRD §4.1 / T2.6: lib.rs must register the autostart plugin"
+    );
+    assert!(
+        cargo.contains("tauri-plugin-autostart"),
+        "PRD §4.1 / T2.6: Cargo.toml must declare tauri-plugin-autostart"
+    );
+}

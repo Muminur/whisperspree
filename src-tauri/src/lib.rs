@@ -183,6 +183,10 @@ pub fn run() {
         // folded into the running instance before any other init (PRD §4.1).
         .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .plugin(tauri_plugin_opener::init());
     #[rustfmt::skip]
     let state = ipc::commands::IpcState::new(SettingsStore::new(store::app_data_dir()), Arc::new(KeyringStore));
