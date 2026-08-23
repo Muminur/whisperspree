@@ -31,6 +31,7 @@ use tauri::{
     tray::TrayIconBuilder,
     Manager,
 };
+use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tracing_appender::non_blocking::WorkerGuard;
 
@@ -313,15 +314,37 @@ pub fn run() {
                                     .map_err(|e| Error::HkPerm(e.to_string()))
                             })
                             .unwrap_or(Ok(())),
-                        "launch_at_login" => state_for_tray
-                            .settings
-                            .lock()
-                            .map_err(|_| Error::DbIo("tray settings lock failed".into()))
-                            .and_then(|store| {
-                                store
-                                    .update(serde_json::json!({"launchAtLogin": true}))
-                                    .map(|_| ())
-                            }),
+                        "launch_at_login" => {
+                            // Drive the REAL autostart registration (R2 gate:
+                            // a persisted flag alone is a user-facing lie),
+                            // then persist the resulting state.
+                            let manager = app.autolaunch();
+                            let toggled = manager
+                                .is_enabled()
+                                .map_err(|e| Error::DbIo(format!("autostart probe failed: {e}")))
+                                .and_then(|currently| {
+                                    if currently {
+                                        manager.disable().map(|_| false).map_err(|e| {
+                                            Error::DbIo(format!("autostart disable failed: {e}"))
+                                        })
+                                    } else {
+                                        manager.enable().map(|_| true).map_err(|e| {
+                                            Error::DbIo(format!("autostart enable failed: {e}"))
+                                        })
+                                    }
+                                });
+                            toggled.and_then(|enabled| {
+                                state_for_tray
+                                    .settings
+                                    .lock()
+                                    .map_err(|_| Error::DbIo("tray settings lock failed".into()))
+                                    .and_then(|store| {
+                                        store
+                                            .update(serde_json::json!({"launchAtLogin": enabled}))
+                                            .map(|_| ())
+                                    })
+                            })
+                        }
                         "open_settings" | "open_history" | "open_onboarding" => {
                             let _ = app
                                 .get_webview_window(id.strip_prefix("open_").unwrap_or("settings"))

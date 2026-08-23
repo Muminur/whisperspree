@@ -306,3 +306,17 @@ fn scaffold_autostart_plugin_registered() {
         "PRD §4.1 / T2.6: Cargo.toml must declare tauri-plugin-autostart"
     );
 }
+
+#[test]
+fn t2_6_tray_launch_at_login_toggles_the_real_autostart_registration() {
+    let lib =
+        fs::read_to_string(manifest_dir().join("src/lib.rs")).expect("T2.6: src/lib.rs must exist");
+    assert!(
+        lib.contains("autolaunch()"),
+        "the launch-at-login tray action must drive the real autostart registration, not only persist a setting"
+    );
+    assert!(
+        lib.contains(".toggle()") || (lib.contains(".enable()") && lib.contains(".disable()")),
+        "launch-at-login must be a true toggle (enable AND disable paths)"
+    );
+}
