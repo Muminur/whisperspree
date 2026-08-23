@@ -191,3 +191,31 @@ describe("HUD (FR-5.2)", () => {
     expect(screen.getByRole("status", { name: "Idle", hidden: true })).toBeInTheDocument();
   });
 });
+
+// FR-5.2 click-through: the HUD window ignores cursor events except while the
+// pointer is over its interactive quick menu. Tauri's built-in window API is
+// used directly so the pinned §9.1 command surface stays untouched.
+const setIgnoreCursorEvents = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({ setIgnoreCursorEvents }),
+  __mockSetIgnoreCursorEvents: setIgnoreCursorEvents,
+}));
+
+describe("HUD click-through (FR-5.2)", () => {
+  it("fr_5_2_ignores_cursor_events_by_default_and_releases_them_over_the_quick_menu", async () => {
+    vi.useFakeTimers();
+    const { rerender } = render(<Hud view={{ kind: "idle" }} />);
+    await act(async () => {});
+    expect(setIgnoreCursorEvents).toHaveBeenLastCalledWith(true);
+
+    rerender(<Hud view={{ kind: "injecting" }} />);
+    fireEvent.mouseEnter(screen.getByTestId("hud-pill"));
+    expect(screen.getByRole("menuitem", { name: "Copy raw" })).toBeInTheDocument();
+    await act(async () => {});
+    expect(setIgnoreCursorEvents).toHaveBeenLastCalledWith(false);
+
+    fireEvent.mouseLeave(screen.getByTestId("hud-pill"));
+    await act(async () => {});
+    expect(setIgnoreCursorEvents).toHaveBeenLastCalledWith(true);
+  });
+});

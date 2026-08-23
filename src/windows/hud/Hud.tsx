@@ -21,9 +21,20 @@ import { getSettings } from "../../lib/ipc";
 import { LevelMeter } from "./LevelMeter";
 import { QuickMenu } from "./QuickMenu";
 import { Ticker } from "./Ticker";
+// FR-5.2 click-through toggle rides Tauri's built-in window API.
 
 const IDLE_HIDE_MS = 1_500;
 const NOTICE_HIDE_MS = 4_000;
+
+// Headless-safe wrapper: outside a real Tauri webview there is no window
+// metadata, so the FR-5.2 cursor toggle degrades to a no-op.
+function syncHudClickThrough(ignore: boolean) {
+  try {
+    void getCurrentWindow().setIgnoreCursorEvents(ignore);
+  } catch {
+    // No Tauri runtime (tests / plain browser).
+  }
+}
 
 function syncNativeHudVisibility(visible: boolean) {
   try {
@@ -65,6 +76,12 @@ export function Hud({ view, quickMenuAvailable = false }: { view: HudView; quick
   useEffect(() => {
     if (!canOpenQuickMenu) setQuickMenu(false);
   }, [canOpenQuickMenu]);
+
+  // FR-5.2 click-through: swallow all cursor events except while the pointer
+  // is over the quick menu, using Tauri's window API directly (no §9.1 command).
+  useEffect(() => {
+    syncHudClickThrough(!quickMenu);
+  }, [quickMenu]);
 
   return (
     <div
