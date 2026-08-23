@@ -13,13 +13,111 @@
 //!   `keyring` path is exercised only by the `#[ignore]` opt-in test below.
 
 use crate::error::Error;
+use serde::{de, Deserialize, Serialize};
 
 /// The two secret-bearing providers (§4.3 / §10). Maps to the exact PRD §12
 /// P-3 keychain account literals via [`Provider::account_name`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Provider {
     Anthropic,
     Deepgram,
+}
+
+/// Deserialize the closed provider domain without allowing serde's default
+/// unknown-variant diagnostic to reflect an attacker-controlled argument back
+/// through Tauri's IPC error response.
+impl<'de> Deserialize<'de> for Provider {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        struct ProviderVisitor;
+
+        impl<'de> de::Visitor<'de> for ProviderVisitor {
+            type Value = Provider;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("unsupported provider")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                match value {
+                    "anthropic" => Ok(Provider::Anthropic),
+                    "deepgram" => Ok(Provider::Deepgram),
+                    _ => Err(E::custom("unsupported provider")),
+                }
+            }
+
+            fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                self.visit_str(&value)
+            }
+
+            fn visit_bool<E>(self, _: bool) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Err(E::custom("unsupported provider"))
+            }
+
+            fn visit_i64<E>(self, _: i64) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Err(E::custom("unsupported provider"))
+            }
+
+            fn visit_u64<E>(self, _: u64) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Err(E::custom("unsupported provider"))
+            }
+
+            fn visit_f64<E>(self, _: f64) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Err(E::custom("unsupported provider"))
+            }
+
+            fn visit_none<E>(self) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Err(E::custom("unsupported provider"))
+            }
+
+            fn visit_unit<E>(self) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Err(E::custom("unsupported provider"))
+            }
+
+            fn visit_seq<A>(self, _: A) -> Result<Self::Value, A::Error>
+            where
+                A: de::SeqAccess<'de>,
+            {
+                Err(de::Error::custom("unsupported provider"))
+            }
+
+            fn visit_map<A>(self, _: A) -> Result<Self::Value, A::Error>
+            where
+                A: de::MapAccess<'de>,
+            {
+                Err(de::Error::custom("unsupported provider"))
+            }
+        }
+
+        deserializer.deserialize_any(ProviderVisitor)
+    }
 }
 
 impl Provider {

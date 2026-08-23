@@ -134,14 +134,9 @@ fn fr_0_5_1_all_commands_return_todo_except_completed_t0_3_adapters() {
     }
     // T2.2 owns `test_injection`; it now dispatches through the managed
     // §9.3 Injector and is covered by tests/injection_command.rs.
-    let permissions = match commands::check_permissions() {
-        Ok(permissions) => permissions,
-        Err(error) => panic!("permission snapshot failed: {}", error.message),
-    };
-    assert_eq!(
-        permissions.microphone,
-        commands::PermissionState::Undetermined
-    );
+    // T2.5 moved probes behind the managed seam; the conservative default is
+    // dispatched through the real Tauri macros in onboarding_permissions.rs.
+
     assert!(commands::permission_pane_url("microphone").is_ok());
     assert_todo_error(
         commands::export_history("/tmp/out.jsonl".into()),

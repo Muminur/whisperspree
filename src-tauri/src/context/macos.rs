@@ -169,6 +169,47 @@ unsafe fn cf_string_matches(string: CFStringRef, expected: &str) -> bool {
         .eq_ignore_ascii_case(expected)
 }
 
+/// Native FR-5.4 probes: Accessibility (HIServices), Input Monitoring
+/// (CoreGraphics preflight), Microphone (AVFoundation authorization status).
+pub struct MacPermissionProbe;
+
+impl crate::state::PermissionProbe for MacPermissionProbe {
+    fn snapshot(&self) -> crate::ipc::commands::PermissionState {
+        crate::ipc::commands::PermissionState::Undetermined
+    }
+    fn accessibility(&self) -> crate::ipc::commands::PermissionState {
+        if accessibility_trusted() {
+            crate::ipc::commands::PermissionState::Granted
+        } else {
+            crate::ipc::commands::PermissionState::Denied
+        }
+    }
+    fn input_monitoring(&self) -> crate::ipc::commands::PermissionState {
+        // SAFETY: no arguments; bool return per CoreGraphics CGEvent.h.
+        if unsafe { CGPreflightListenEventAccess() } {
+            crate::ipc::commands::PermissionState::Granted
+        } else {
+            crate::ipc::commands::PermissionState::Denied
+        }
+    }
+    fn microphone(&self) -> crate::ipc::commands::PermissionState {
+        let status: i64 = unsafe {
+            objc2::msg_send![objc2::class!(AVCaptureDevice), authorizationStatusForMediaType: AVMediaTypeAudio]
+        };
+        crate::ipc::commands::av_status_to_permission(status)
+    }
+}
+
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGPreflightListenEventAccess() -> bool;
+}
+
+#[link(name = "AVFoundation", kind = "framework")]
+extern "C" {
+    static AVMediaTypeAudio: &'static objc2::runtime::AnyObject;
+}
+
 fn bundle_identifier(app_path: &Path) -> Option<String> {
     let plist = app_path.join("Contents/Info.plist");
     let text = std::fs::read_to_string(plist).ok()?;

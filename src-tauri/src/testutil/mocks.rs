@@ -1,10 +1,10 @@
-//! Test doubles for OS-permission-bound surfaces (CLAUDE.md §3 / OPEN_QUESTIONS
+//! Test doubles for OS-permission-bound surfaces (PRD §17.3 / OPEN_QUESTIONS
 //! Q4). The keychain (`store::keychain::KeyStore`) is the only trait T0.3
 //! introduces; doubles for the other §9.3 traits (mic, key capture, injection,
 //! AX/`ContextProvider`) land with the tasks that introduce those traits.
 //!
 //! These doubles carry real (not `todo!()`) logic deliberately: they are the
-//! CLAUDE.md-sanctioned boundary substitute for an OS-permission surface, not
+//! PRD-sanctioned boundary substitute for an OS-permission surface, not
 //! production business logic under test.
 
 use crate::error::Error;

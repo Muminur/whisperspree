@@ -25,6 +25,23 @@ use crate::hotkey::{
     spawn_action_bridge, spawn_rdev_listener_with_control, HotkeyConfig, PermissionState,
 };
 
+/// OS-permission boundary behind `check_permissions` (FR-5.4). The default
+/// answers feed every slot; the native macOS probe overrides each slot with
+/// its own authoritative source.
+pub trait PermissionProbe: Send + Sync {
+    fn snapshot(&self) -> crate::ipc::commands::PermissionState;
+
+    fn microphone(&self) -> crate::ipc::commands::PermissionState {
+        self.snapshot()
+    }
+    fn accessibility(&self) -> crate::ipc::commands::PermissionState {
+        self.snapshot()
+    }
+    fn input_monitoring(&self) -> crate::ipc::commands::PermissionState {
+        self.snapshot()
+    }
+}
+
 type ModelProgressCallback = Box<dyn FnMut(DownloadProgress) + Send>;
 type ModelDownloadFuture = Pin<Box<dyn Future<Output = Result<(), ModelManagerError>> + Send>>;
 
@@ -42,6 +59,7 @@ pub struct IpcState {
     pub(crate) injector: Arc<dyn Injector>,
     pub(crate) injection_context_provider:
         Arc<dyn Fn() -> Result<InjectContext, Error> + Send + Sync>,
+    pub(crate) permission_probe: Arc<dyn PermissionProbe>,
 }
 
 impl IpcState {

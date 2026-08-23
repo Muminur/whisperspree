@@ -168,6 +168,7 @@ impl Default for Settings {
 /// Reads/writes `<dir>/settings.json`. `dir` is injected so tests use a
 /// `tempfile` tempdir instead of the real `~/Library/Application Support` path
 /// (that real path only comes from `store::app_data_dir()` at call sites).
+#[derive(Clone)]
 pub struct SettingsStore {
     dir: PathBuf,
 }
@@ -215,10 +216,18 @@ impl SettingsStore {
         // which `deep_merge` leaves untouched — this is how the prior valid value
         // in `base` survives (OPEN_QUESTIONS Q8-c "reject-by-ignore").
         let mut patch = patch;
+        // Unknown settings are forward-compatible, but settings.json is never a
+        // secret store (§12 P-3). Strip secret-bearing unknown fields at every
+        // depth before merge so a nested object/array cannot smuggle credentials
+        // to disk while benign future settings remain intact.
+        strip_secret_bearing_fields(&mut patch);
         validate(&mut patch);
         deep_merge(&mut base, &patch);
-        // Defense-in-depth clamp/drop pass over the fully merged value (idempotent
-        // once the patch above is already sanitized).
+        // Defense in depth: sanitize the fully merged value too, including any
+        // legacy unknown field already present on disk, before it is persisted.
+        strip_secret_bearing_fields(&mut base);
+        // Clamp/drop pass over the fully merged value (idempotent once the patch
+        // above is already sanitized).
         validate(&mut base);
         // Prove the round-trip BEFORE writing anything to disk: a type-invalid
         // patch (e.g. a string where a number belongs) passes `validate` (which
@@ -319,6 +328,110 @@ fn deep_merge(base: &mut Value, patch: &Value) {
             }
         }
     }
+}
+
+/// Remove keys and string values that are recognizably secret-bearing from a
+/// user-supplied settings patch. Objects and arrays are walked recursively so
+/// safe siblings of an offending nested field remain available to future app
+/// versions.
+fn strip_secret_bearing_fields(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            object.retain(|key, child| {
+                if is_secret_bearing_key(key) || contains_secret_value(child) {
+                    return false;
+                }
+                strip_secret_bearing_fields(child);
+                true
+            });
+        }
+        Value::Array(values) => {
+            values.retain(|child| !contains_secret_value(child));
+            values.iter_mut().for_each(strip_secret_bearing_fields);
+        }
+        _ => {}
+    }
+}
+
+/// Match complete credential terms after normalizing conventional camelCase
+/// and snake_case spellings. This intentionally does not reject unrelated
+/// names such as `tokenizerModel`, `secretaryMode`, or `passwordlessMode`.
+fn is_secret_bearing_key(key: &str) -> bool {
+    let normalized: String = key
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .map(|character| character.to_ascii_lowercase())
+        .collect();
+
+    let mut tokens = Vec::new();
+    let chars: Vec<char> = key.chars().collect();
+    let mut current = String::new();
+    for (index, character) in chars.iter().copied().enumerate() {
+        let separator = !character.is_ascii_alphanumeric();
+        let previous = index.checked_sub(1).and_then(|i| chars.get(i)).copied();
+        let next = chars.get(index + 1).copied();
+        let camel_boundary = character.is_ascii_uppercase()
+            && previous.is_some_and(|p| p.is_ascii_lowercase())
+            || character.is_ascii_uppercase()
+                && previous.is_some_and(|p| p.is_ascii_uppercase())
+                && next.is_some_and(|n| n.is_ascii_lowercase());
+        if separator || camel_boundary {
+            if !current.is_empty() {
+                tokens.push(std::mem::take(&mut current));
+            }
+            if !separator {
+                current.push(character.to_ascii_lowercase());
+            }
+        } else {
+            current.push(character.to_ascii_lowercase());
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+
+    if matches!(
+        normalized.as_str(),
+        "apikey"
+            | "anthropicapikey"
+            | "deepgramapikey"
+            | "apicredential"
+            | "apicredentials"
+            | "accesstoken"
+            | "authtoken"
+            | "bearertoken"
+            | "clientsecret"
+            | "credential"
+            | "credentials"
+            | "password"
+            | "privatekey"
+            | "secret"
+            | "token"
+            | "authorization"
+            | "authorizationheader"
+            | "authheader"
+    ) {
+        return true;
+    }
+
+    tokens.iter().any(|token| {
+        matches!(
+            token.as_str(),
+            "token" | "secret" | "password" | "credential" | "credentials" | "authorization"
+        )
+    }) || tokens
+        .windows(2)
+        .any(|pair| matches!(pair, [first, second] if (first == "api" && second == "key") || (first == "pass" && second == "word")))
+}
+
+/// Reuse the one P-3 redaction predicate at the persistence boundary. A changed
+/// result means this string contains an `sk-ant-…` key or a `Token <value>`
+/// credential; ordinary text such as "token usage" remains untouched.
+fn contains_secret_value(value: &Value) -> bool {
+    let Value::String(text) = value else {
+        return false;
+    };
+    crate::error::redact(text) != *text
 }
 
 /// Clamp/reject-by-ignore pass applied to the merged raw value before persist
@@ -622,6 +735,57 @@ mod tests {
             "DB-IO",
             "settings I/O failure must map to DB-IO (Q8)"
         );
+    }
+
+    #[test]
+    fn secret_key_compounds_are_removed_but_benign_words_remain() {
+        let mut value = serde_json::json!({
+            "refreshToken": "private",
+            "dbPassword": "private",
+            "serviceCredential": "private",
+            "customSecret": "private",
+            "backupApiKey": "private",
+            "myAuthorization": "private",
+            "tokenizerModel": "safe",
+            "secretaryMode": "safe",
+            "passwordlessMode": true,
+            "toKen_value": "safe"
+        });
+        strip_secret_bearing_fields(&mut value);
+        assert!(value.get("refreshToken").is_none());
+        assert!(value.get("dbPassword").is_none());
+        assert!(value.get("serviceCredential").is_none());
+        assert!(value.get("customSecret").is_none());
+        assert!(value.get("backupApiKey").is_none());
+        assert!(value.get("myAuthorization").is_none());
+        assert_eq!(value["tokenizerModel"], "safe");
+        assert_eq!(value["secretaryMode"], "safe");
+        assert_eq!(value["passwordlessMode"], true);
+        assert_eq!(value["toKen_value"], "safe");
+    }
+
+    #[test]
+    fn update_scrubs_array_secrets_and_preexisting_unknowns() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let store = SettingsStore::new(tmp.path().to_path_buf());
+        store.update(serde_json::json!({})).expect("seed defaults");
+        let path = tmp.path().join("settings.json");
+        let mut raw: Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        raw["legacy"] = serde_json::json!({
+            "refreshToken": "opaque-legacy-secret",
+            "safe": true,
+            "values": ["Token legacy-array-secret", "retain me"]
+        });
+        std::fs::write(&path, serde_json::to_string_pretty(&raw).unwrap()).unwrap();
+
+        store
+            .update(serde_json::json!({ "mode": "local" }))
+            .expect("sanitized update");
+        let after: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(after["legacy"].get("refreshToken").is_none());
+        assert_eq!(after["legacy"]["safe"], true);
+        assert_eq!(after["legacy"]["values"], serde_json::json!(["retain me"]));
     }
 
     /// AC: §12 P-3 / §4.4 — `settings.json` never carries an API key/secret field.

@@ -1,6 +1,6 @@
 //! Error taxonomy, `ApiError` wire type, and the P-3 secret-redaction layer.
 //!
-//! **T0.2 — implemented (tests-first per CLAUDE.md §3).** The colocated tests
+//! **T0.2 — implemented (tests-first per PRD §17.3).** The colocated tests
 //! below were written before the implementation and pin the exact behaviour of
 //! the taxonomy, the `ApiError` wire shape, and the redaction layer.
 //!
@@ -19,8 +19,12 @@
 /// Every WhisperSpree error maps to exactly one **stable** §14 code. Each variant
 /// carries a human-readable message; that message is redacted (P-3) on its way to
 /// the frontend via [`ApiError`] and is never allowed to leak a secret.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum Error {
+    /// Internal state-machine rejection. It maps to DB-IO on the closed §14
+    /// wire taxonomy, but remains distinct for diagnostics and logging.
+    #[error("illegal session transition: {0}")]
+    IllegalTransition(String),
     /// `MIC-PERM` — microphone permission denied.
     #[error("{0}")]
     MicPerm(String),
@@ -71,6 +75,9 @@ impl Error {
     /// Pinned by `error::tests::all_14_codes_roundtrip_stable_strings`.
     pub fn code(&self) -> &'static str {
         match self {
+            // PRD-QUESTION(Q18): the internal state-machine error has no
+            // dedicated public code in the closed §14 taxonomy.
+            Error::IllegalTransition(_) => "DB-IO",
             Error::MicPerm(_) => "MIC-PERM",
             Error::MicDev(_) => "MIC-DEV",
             Error::HkPerm(_) => "HK-PERM",
@@ -103,6 +110,7 @@ impl Error {
         // One arm per §14 row, ordered as the matrix; the true/false split is the
         // Q6 derivation marked above. AX-PERM is the borderline `true`.
         match self {
+            Error::IllegalTransition(_) => true,
             Error::MicPerm(_) => false,
             Error::MicDev(_) => true,
             Error::HkPerm(_) => false,
