@@ -182,3 +182,41 @@ async fn fr_1_1_silence_only_session_aborts_without_normal_transcript() {
     assert!(!*finalized.lock().unwrap());
     assert!(*aborted.lock().unwrap());
 }
+
+#[tokio::test]
+async fn ec_1_1_gated_utterance_samples_are_retained_bounded_for_cloud_local_fallback() {
+    let recognizer = recognizer();
+    let fed = Arc::clone(&recognizer.fed);
+    let mut pump = SessionPump::new(
+        recognizer,
+        ScriptedGate {
+            decisions: {
+                let mut d = vec![
+                    VadDecision::Suppress,
+                    VadDecision::SpeechStarted { buffered_frames: 1 },
+                ];
+                d.extend(std::iter::repeat(VadDecision::Feed).take(45));
+                d
+            },
+        },
+    );
+    let (tx, _rx) = mpsc::channel(4);
+    pump.start(AsrConfig::local("tiny"), tx).await.unwrap();
+
+    pump.push_samples(&vec![0.25; VAD_FRAME_SAMPLES * 3])
+        .unwrap();
+
+    // Exactly the frames the recognizer saw are retained, so a mid-session
+    // cloud->local swap can replay the identical audio.
+    let fed_frames = fed.lock().unwrap().len();
+    assert_eq!(
+        pump.utterance_samples().len(),
+        fed_frames * VAD_FRAME_SAMPLES
+    );
+
+    // Bounded: a runaway utterance keeps only the newest window.
+    for _ in 0..40 {
+        pump.push_samples(&vec![0.5; VAD_FRAME_SAMPLES]).unwrap();
+    }
+    assert!(pump.utterance_samples().len() <= 480_000);
+}

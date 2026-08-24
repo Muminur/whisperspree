@@ -81,7 +81,14 @@ pub struct SessionPump<R, G> {
     in_speech: bool,
     speech_observed: bool,
     started: bool,
+    /// EC-1.1: every gated frame actually fed to the recognizer, capped to the
+    /// newest 30 s so a mid-session cloud->local swap can replay the utterance
+    /// without unbounded memory.
+    utterance: Vec<f32>,
 }
+
+/// 30 s of 16 kHz mono — the EC-1.1 replay ceiling.
+const MAX_UTTERANCE_SAMPLES: usize = 16_000 * 30;
 
 impl<R: SpeechRecognizer, G: FrameGate> SessionPump<R, G> {
     pub fn new(recognizer: R, gate: G) -> Self {
@@ -93,6 +100,7 @@ impl<R: SpeechRecognizer, G: FrameGate> SessionPump<R, G> {
             in_speech: false,
             speech_observed: false,
             started: false,
+            utterance: Vec::new(),
         }
     }
 
@@ -149,14 +157,18 @@ impl<R: SpeechRecognizer, G: FrameGate> SessionPump<R, G> {
                 self.speech_observed = true;
                 let buffered_frames = buffered_frames.saturating_sub(1) as usize;
                 let skip = self.pre_speech.len().saturating_sub(buffered_frames);
-                for buffered in self.pre_speech.drain(..).skip(skip) {
+                let priming: Vec<Vec<f32>> = self.pre_speech.drain(..).skip(skip).collect();
+                for buffered in priming {
+                    self.retain_utterance(&buffered);
                     self.recognizer.feed(&buffered)?;
                 }
+                self.retain_utterance(&frame);
                 self.recognizer.feed(&frame)?;
             }
             VadDecision::Feed => {
                 self.in_speech = true;
                 self.speech_observed = true;
+                self.retain_utterance(&frame);
                 self.recognizer.feed(&frame)?;
             }
             VadDecision::Endpoint => {
@@ -168,6 +180,19 @@ impl<R: SpeechRecognizer, G: FrameGate> SessionPump<R, G> {
             VadDecision::Suppress => {}
         }
         Ok(())
+    }
+
+    /// EC-1.1 replay buffer: the gated frames the current recognizer received.
+    pub fn utterance_samples(&self) -> &[f32] {
+        &self.utterance
+    }
+
+    fn retain_utterance(&mut self, frame: &[f32]) {
+        self.utterance.extend_from_slice(frame);
+        let excess = self.utterance.len().saturating_sub(MAX_UTTERANCE_SAMPLES);
+        if excess > 0 {
+            self.utterance.drain(..excess);
+        }
     }
 
     pub fn speech_observed(&self) -> bool {
