@@ -59,7 +59,12 @@ impl SessionEventSink for RecordingSink {
     fn emit_task(&self, _session_id: &str, _event: SessionTaskEvent) -> Result<(), Error> {
         Ok(())
     }
-    fn emit_state(&self, _session_id: &str, state: SessionState) -> Result<(), Error> {
+    fn emit_state(
+        &self,
+        _session_id: &str,
+        state: SessionState,
+        _engine: &str,
+    ) -> Result<(), Error> {
         self.states.lock().unwrap().push(state);
         Ok(())
     }

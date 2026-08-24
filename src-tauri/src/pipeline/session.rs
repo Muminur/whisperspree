@@ -57,6 +57,21 @@ mod macos_runtime {
         session: LocalSession,
         events: async_mpsc::Receiver<SessionTaskEvent>,
         session_id: String,
+        engine: &'static str,
+    }
+
+    impl ActiveSession {
+        fn engine_label(&self) -> &'static str {
+            self.engine
+        }
+    }
+
+    /// FR-5.2 / T3.2: the HUD badge reflects the recognizer actually running.
+    fn engine_label(engine: &ActiveEngine) -> &'static str {
+        match engine {
+            ActiveEngine::Local(_) => "local",
+            ActiveEngine::Cloud(_) => "cloud",
+        }
     }
 
     fn collect_release_tail(session: &mut LocalSession) -> Result<(), Error> {
@@ -79,7 +94,7 @@ mod macos_runtime {
         let Some(session_id) = session_id else { return };
         if let Some(sink) = sink {
             warn_runtime_error(
-                sink.emit_state(session_id, SessionState::Error),
+                sink.emit_state(session_id, SessionState::Error, "unknown"),
                 "error state emission after start failure",
             );
             warn_runtime_error(
@@ -87,7 +102,7 @@ mod macos_runtime {
                 "start failure event emission failed",
             );
             warn_runtime_error(
-                sink.emit_state(session_id, SessionState::Idle),
+                sink.emit_state(session_id, SessionState::Idle, "unknown"),
                 "idle state emission after start failure",
             );
         }
@@ -246,6 +261,7 @@ mod macos_runtime {
                                             &models,
                                             keys.as_ref(),
                                         )?;
+                                        let engine_label = engine_label(&engine);
                                         if let ActiveEngine::Local(local) = &mut engine {
                                             local.set_effective_model_persistence(Arc::new(
                                                 SettingsModelPersistence { settings: Arc::clone(&settings) },
@@ -275,11 +291,13 @@ mod macos_runtime {
                                             session,
                                             events: event_rx,
                                             session_id,
+                                            engine: engine_label,
                                         });
                                         if let Some(sink) = event_sink.as_ref() {
                                             if let Err(error) = sink.emit_state(
                                                 active.as_ref().expect("active session").session_id.as_str(),
                                                 SessionState::Listening,
+                                                active.as_ref().expect("active session").engine,
                                             ) {
                                                 tracing::warn!(code = %error.code(), %error, "session state event sink failed");
                                             }
@@ -299,7 +317,7 @@ mod macos_runtime {
                                     let result = if let Some(mut current) = active.take() {
                                         let session_id = current.session_id.clone();
                                         if let Some(sink) = event_sink.as_ref() {
-                                            warn_runtime_error(sink.emit_state(&session_id, SessionState::Finalizing), "finalizing state emission failed");
+                                            warn_runtime_error(sink.emit_state(&session_id, SessionState::Finalizing, "unknown"), "finalizing state emission failed");
                                         }
                                         current.session.begin_release();
                                         let tail_result = collect_release_tail(&mut current.session);
@@ -309,13 +327,13 @@ mod macos_runtime {
                                         let result = if result.is_err() {
                                             warn_runtime_error(coordinator.failed_control(), "coordinator failed transition after stop");
                                             if let Some(sink) = event_sink.as_ref() {
-                                                warn_runtime_error(sink.emit_state(&session_id, SessionState::Error), "error state emission failed");
+                                                warn_runtime_error(sink.emit_state(&session_id, SessionState::Error, "unknown"), "error state emission failed");
                                             }
                                             let _ = drain_events(&mut current, event_sink.as_ref());
                                             let reset = coordinator.reset_control();
                                             warn_runtime_error(reset.clone(), "coordinator reset after stop failure");
                                             if let Some(sink) = event_sink.as_ref() {
-                                                warn_runtime_error(sink.emit_state(&session_id, SessionState::Idle), "idle state emission failed");
+                                                warn_runtime_error(sink.emit_state(&session_id, SessionState::Idle, "unknown"), "idle state emission failed");
                                             }
                                             result
                                             } else {
@@ -325,14 +343,14 @@ mod macos_runtime {
                                                     let reset = coordinator.reset_control();
                                                     warn_runtime_error(reset.clone(), "coordinator reset after silence-only stop");
                                                     if let Some(sink) = event_sink.as_ref() {
-                                                        warn_runtime_error(sink.emit_state(&session_id, SessionState::Idle), "idle state emission after silence-only stop");
+                                                        warn_runtime_error(sink.emit_state(&session_id, SessionState::Idle, "unknown"), "idle state emission after silence-only stop");
                                                     }
                                                     reset
                                                 } else {
                                                     warn_runtime_error(coordinator.stop_control(), "coordinator stop transition failed");
                                                     warn_runtime_error(coordinator.finalized_control(), "coordinator finalized transition failed");
                                                     if let Some(sink) = event_sink.as_ref() {
-                                                        warn_runtime_error(sink.emit_state(&session_id, SessionState::PostProcessing), "post-processing state emission failed");
+                                                        warn_runtime_error(sink.emit_state(&session_id, SessionState::PostProcessing, "unknown"), "post-processing state emission failed");
                                                     }
                                                     let injection = super::run_injection_phase(
                                                         &coordinator,
@@ -365,7 +383,7 @@ mod macos_runtime {
                                         let result = result.and(reset);
                                         if result.is_ok() {
                                             if let Some(sink) = event_sink.as_ref() {
-                                                warn_runtime_error(sink.emit_state(&session_id, SessionState::Idle), "idle state emission failed");
+                                                warn_runtime_error(sink.emit_state(&session_id, SessionState::Idle, "unknown"), "idle state emission failed");
                                             }
                                         }
                                         result
@@ -391,7 +409,7 @@ mod macos_runtime {
                                         let result = result.and(reset);
                                         if result.is_ok() {
                                             if let Some(sink) = event_sink.as_ref() {
-                                                warn_runtime_error(sink.emit_state(&session_id, SessionState::Idle), "idle state emission after silent cancel failed");
+                                                warn_runtime_error(sink.emit_state(&session_id, SessionState::Idle, "unknown"), "idle state emission after silent cancel failed");
                                             }
                                         }
                                         result
@@ -408,6 +426,7 @@ mod macos_runtime {
                                                 warn_runtime_error(sink.emit_state(
                                                     &session_id,
                                                     SessionState::Finalizing,
+                                                    current.engine_label(),
                                                 ), "finalizing state emission failed");
                                             }
                                             current.session.begin_release();
@@ -417,13 +436,13 @@ mod macos_runtime {
                                             let result = if result.is_err() {
                                                 warn_runtime_error(coordinator.failed_control(), "coordinator failed transition after toggle stop");
                                                 if let Some(sink) = event_sink.as_ref() {
-                                                    warn_runtime_error(sink.emit_state(&session_id, SessionState::Error), "error state emission failed");
+                                                    warn_runtime_error(sink.emit_state(&session_id, SessionState::Error, "unknown"), "error state emission failed");
                                                 }
                                                 let _ = drain_events(&mut current, event_sink.as_ref());
                                                 let reset = coordinator.reset_control();
                                                 warn_runtime_error(reset.clone(), "coordinator reset after toggle stop failure");
                                                 if let Some(sink) = event_sink.as_ref() {
-                                                    warn_runtime_error(sink.emit_state(&session_id, SessionState::Idle), "idle state emission failed");
+                                                    warn_runtime_error(sink.emit_state(&session_id, SessionState::Idle, "unknown"), "idle state emission failed");
                                                 }
                                                 result
                                             } else {
@@ -433,14 +452,14 @@ mod macos_runtime {
                                                     let reset = coordinator.reset_control();
                                                     warn_runtime_error(reset.clone(), "coordinator reset after silence-only toggle stop");
                                                     if let Some(sink) = event_sink.as_ref() {
-                                                        warn_runtime_error(sink.emit_state(&session_id, SessionState::Idle), "idle state emission after silence-only toggle stop");
+                                                        warn_runtime_error(sink.emit_state(&session_id, SessionState::Idle, "unknown"), "idle state emission after silence-only toggle stop");
                                                     }
                                                     reset
                                                 } else {
                                                     warn_runtime_error(coordinator.stop_control(), "coordinator stop transition failed");
                                                     warn_runtime_error(coordinator.finalized_control(), "coordinator finalized transition failed");
                                                     if let Some(sink) = event_sink.as_ref() {
-                                                        warn_runtime_error(sink.emit_state(&session_id, SessionState::PostProcessing), "post-processing state emission failed");
+                                                        warn_runtime_error(sink.emit_state(&session_id, SessionState::PostProcessing, "unknown"), "post-processing state emission failed");
                                                     }
                                                     let injection = super::run_injection_phase(
                                                         &coordinator,
@@ -483,6 +502,7 @@ mod macos_runtime {
                                                 &models,
                                                 keys.as_ref(),
                                             )?;
+                                            let engine_label = engine_label(&engine);
                                             if let ActiveEngine::Local(local) = &mut engine {
                                                 local.set_effective_model_persistence(Arc::new(
                                                     SettingsModelPersistence { settings: Arc::clone(&settings) },
@@ -516,11 +536,13 @@ mod macos_runtime {
                                                 session,
                                                 events: event_rx,
                                                 session_id,
+                                                engine: engine_label,
                                             });
                                             if let Some(sink) = event_sink.as_ref() {
                                                 if let Err(error) = sink.emit_state(
                                                     active.as_ref().expect("active session").session_id.as_str(),
                                                     SessionState::Listening,
+                                                    active.as_ref().expect("active session").engine,
                                                 ) {
                                                     tracing::warn!(code = %error.code(), %error, "session state event sink failed");
                                                 }
@@ -560,12 +582,12 @@ mod macos_runtime {
                                                 warn_runtime_error(microphone.close(), "microphone close after capture stream failure");
                                                 warn_runtime_error(coordinator.failed_control(), "coordinator failure transition after capture stream failure");
                                                 if let Some(sink) = event_sink.as_ref() {
-                                                    warn_runtime_error(sink.emit_state(&session_id, SessionState::Error), "error state emission after capture stream failure");
+                                                    warn_runtime_error(sink.emit_state(&session_id, SessionState::Error, "unknown"), "error state emission after capture stream failure");
                                                 }
                                                 drain_events(&mut current, event_sink.as_ref());
                                                 warn_runtime_error(coordinator.reset_control(), "coordinator reset after capture stream failure");
                                                 if let Some(sink) = event_sink.as_ref() {
-                                                    warn_runtime_error(sink.emit_state(&session_id, SessionState::Idle), "idle state emission after capture stream failure");
+                                                    warn_runtime_error(sink.emit_state(&session_id, SessionState::Idle, "unknown"), "idle state emission after capture stream failure");
                                                 }
                                                 continue;
                                             }
@@ -589,12 +611,12 @@ mod macos_runtime {
                                                     warn_runtime_error(microphone.close(), "microphone close after service failure");
                                                     warn_runtime_error(coordinator.failed_control(), "coordinator failure transition after service failure");
                                                     if let Some(sink) = event_sink.as_ref() {
-                                                        warn_runtime_error(sink.emit_state(&session_id, SessionState::Error), "error state emission after service failure");
+                                                        warn_runtime_error(sink.emit_state(&session_id, SessionState::Error, "unknown"), "error state emission after service failure");
                                                     }
                                                     drain_events(&mut current, event_sink.as_ref());
                                                     warn_runtime_error(coordinator.reset_control(), "coordinator reset after service failure");
                                                     if let Some(sink) = event_sink.as_ref() {
-                                                        warn_runtime_error(sink.emit_state(&session_id, SessionState::Idle), "idle state emission after service failure");
+                                                        warn_runtime_error(sink.emit_state(&session_id, SessionState::Idle, "unknown"), "idle state emission after service failure");
                                                     }
                                                 }
                                             }
@@ -613,6 +635,7 @@ mod macos_runtime {
                                                 warn_runtime_error(sink.emit_state(
                                                     &session_id,
                                                     SessionState::Error,
+                                                    current.engine_label(),
                                                 ), "error state emission failed");
                                             }
                                             drain_events(&mut current, event_sink.as_ref());
@@ -621,6 +644,7 @@ mod macos_runtime {
                                                 warn_runtime_error(sink.emit_state(
                                                     &session_id,
                                                     SessionState::Idle,
+                                                    current.engine_label(),
                                                 ), "idle state emission failed");
                                             }
                                         }
@@ -733,7 +757,9 @@ fn warn_emit(result: Result<(), Error>, context: &'static str) {
 /// thread only invokes this non-real-time boundary while draining its queue.
 pub trait SessionEventSink: Send + Sync {
     fn emit_task(&self, session_id: &str, event: SessionTaskEvent) -> Result<(), Error>;
-    fn emit_state(&self, session_id: &str, state: SessionState) -> Result<(), Error>;
+    /// `engine` is the ACTUAL recognizer serving this session ("local"/"cloud");
+    /// it drives the HUD badge (FR-5.2 / T3.2).
+    fn emit_state(&self, session_id: &str, state: SessionState, engine: &str) -> Result<(), Error>;
     fn emit_audio_level(&self, _session_id: &str, _rms: f32, _peak: f32) -> Result<(), Error> {
         Ok(())
     }
@@ -1312,7 +1338,7 @@ pub fn run_injection_phase<
     let events = runtime.processed_control()?;
     if let Some(sink) = sink {
         warn_emit(
-            sink.emit_state(session_id, SessionState::Injecting),
+            sink.emit_state(session_id, SessionState::Injecting, "unknown"),
             "injecting state emission failed",
         );
     }
@@ -1354,7 +1380,7 @@ pub fn run_injection_phase<
     runtime.inject_done_control()?;
     if let Some(sink) = sink {
         warn_emit(
-            sink.emit_state(session_id, SessionState::Idle),
+            sink.emit_state(session_id, SessionState::Idle, "unknown"),
             "idle state emission after injection failed",
         );
     }

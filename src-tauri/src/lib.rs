@@ -50,7 +50,7 @@ impl<R: tauri::Runtime> SessionEventSink for TauriSessionEventSink<R> {
             .map_err(|error| Error::DbIo(format!("session event emit failed: {error}")))
     }
 
-    fn emit_state(&self, session_id: &str, state: SessionState) -> Result<(), Error> {
+    fn emit_state(&self, session_id: &str, state: SessionState, engine: &str) -> Result<(), Error> {
         if state == SessionState::Idle {
             if let Some(controller) = &self.hotkey_controller {
                 let _ = controller.send(crate::hotkey::HotkeyControl::SessionBecameIdle(
@@ -72,7 +72,7 @@ impl<R: tauri::Runtime> SessionEventSink for TauriSessionEventSink<R> {
             events::SessionStatePayload {
                 session_id: session_id.to_string(),
                 state,
-                engine: Some("local".to_string()),
+                engine: Some(engine.to_string()),
                 style_id: None,
                 notice: None,
             },

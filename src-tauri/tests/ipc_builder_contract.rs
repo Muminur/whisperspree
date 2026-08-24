@@ -390,3 +390,21 @@ fn t3_1_runtime_start_selects_local_or_cloud_engine_from_settings_and_keychain()
         "default_dictation_runtime must hand the managed KeyStore to the runtime"
     );
 }
+
+#[test]
+fn t3_2_session_state_carries_the_selected_engine_to_the_hud_badge() {
+    let session = source("src/pipeline/session.rs");
+    assert!(
+        !session.contains("engine: Some(\"local\""),
+        "state emission must report the ACTUAL engine, not a hardcoded local"
+    );
+    assert!(
+        session.contains("engine_label()"),
+        "ActiveSession must expose which engine is running"
+    );
+    let lib = source("src/lib.rs");
+    assert!(
+        lib.contains("engine: Some(engine.to_string())"),
+        "the Tauri sink must forward the runtime-provided engine label"
+    );
+}
