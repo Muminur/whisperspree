@@ -187,6 +187,11 @@ impl<R: SpeechRecognizer, G: FrameGate> SessionPump<R, G> {
         &self.utterance
     }
 
+    /// EC-1.1 seam: replace the recognizer mid-session (cloud drop -> local).
+    pub fn recognizer_mut(&mut self) -> &mut R {
+        &mut self.recognizer
+    }
+
     fn retain_utterance(&mut self, frame: &[f32]) {
         self.utterance.extend_from_slice(frame);
         let excess = self.utterance.len().saturating_sub(MAX_UTTERANCE_SAMPLES);

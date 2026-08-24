@@ -78,6 +78,16 @@ impl<R: SpeechRecognizer, G: FrameGate> LiveCaptureSession<R, G> {
         Ok(level)
     }
 
+    /// EC-1.1 seam: mid-session recognizer replacement (cloud drop -> local).
+    pub fn recognizer_mut(&mut self) -> &mut R {
+        self.task.recognizer_mut()
+    }
+
+    /// EC-1.1: gated audio already delivered to the current recognizer.
+    pub fn utterance_samples(&self) -> &[f32] {
+        self.task.utterance_samples()
+    }
+
     pub fn begin_release(&mut self) {
         self.releasing = true;
         self.tail.clear();
@@ -164,6 +174,16 @@ impl<R: SpeechRecognizer, G: FrameGate> SessionTask<R, G> {
         if let Some(forwarder) = self.forwarder.take() {
             let _ = forwarder.await;
         }
+    }
+
+    /// EC-1.1 seam: mid-session recognizer replacement (cloud drop -> local).
+    pub fn recognizer_mut(&mut self) -> &mut R {
+        self.pump.recognizer_mut()
+    }
+
+    /// EC-1.1: gated audio already delivered to the current recognizer.
+    pub fn utterance_samples(&self) -> &[f32] {
+        self.pump.utterance_samples()
     }
 
     pub fn push_samples(&mut self, samples: &[f32]) -> Result<(), Error> {
