@@ -684,6 +684,9 @@ mod macos_runtime {
         while let Ok(event) = active.events.try_recv() {
             match &event {
                 SessionTaskEvent::SilenceOnly => outcome.silence_only = true,
+                SessionTaskEvent::Failed(error) => {
+                    outcome.failure_code = Some(error.code().to_string());
+                }
                 SessionTaskEvent::Final(final_transcript) => {
                     outcome.final_text = Some(final_transcript.text.clone());
                 }
@@ -710,6 +713,10 @@ mod macos_runtime {
     struct DrainOutcome {
         silence_only: bool,
         final_text: Option<String>,
+        /// §14 code of a terminal task failure, when one drained. EC-1.1's
+        /// cloud->local swap trigger reads this (NET-STREAM) on the Stop/Toggle
+        /// paths before deciding the session outcome.
+        failure_code: Option<String>,
     }
 
     impl DictationRuntime for MacSessionRuntime {
