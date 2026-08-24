@@ -250,3 +250,34 @@ fn t3_1_engine_factory_requires_a_deepgram_key_from_the_keystore() {
     )
     .expect("a stored key must construct the cloud engine");
 }
+
+/// Opt-in live smoke test (PRD §15.3 / CLAUDE.md §4): exercises the REAL
+/// wss://api.deepgram.com handshake. Never runs in CI; requires both env vars.
+#[tokio::test(flavor = "current_thread")]
+#[ignore = "requires WHISPERSPREE_LIVE_DG=1 plus a real Deepgram key"]
+async fn dg_live_connect_reaches_the_real_websocket() {
+    if std::env::var("WHISPERSPREE_LIVE_DG").as_deref() != Ok("1") {
+        return;
+    }
+    let key = std::env::var("WHISPERSPREE_DG_KEY").expect("live run needs WHISPERSPREE_DG_KEY");
+    let engine = whisperspree_lib::asr::deepgram::DeepgramEngine::new(
+        whisperspree_lib::asr::deepgram::TlsSocketConnector::new(),
+        key,
+        whisperspree_lib::asr::deepgram::DeepgramOptions::default(),
+    );
+    let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+    let mut engine = engine;
+    engine
+        .start(
+            whisperspree_lib::asr::AsrConfig::local("unused-for-cloud"),
+            tx,
+        )
+        .await
+        .expect("live handshake must succeed");
+    assert_eq!(
+        engine.socket_state(),
+        whisperspree_lib::asr::deepgram::SocketState::Connected
+    );
+    engine.abort().await;
+    let _ = rx.close();
+}
