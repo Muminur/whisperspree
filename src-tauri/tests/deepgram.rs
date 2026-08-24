@@ -265,7 +265,7 @@ async fn dg_live_connect_reaches_the_real_websocket() {
         key,
         whisperspree_lib::asr::deepgram::DeepgramOptions::default(),
     );
-    let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+    let (tx, rx) = tokio::sync::mpsc::channel(8);
     let mut engine = engine;
     engine
         .start(
@@ -279,5 +279,5 @@ async fn dg_live_connect_reaches_the_real_websocket() {
         whisperspree_lib::asr::deepgram::SocketState::Connected
     );
     engine.abort().await;
-    let _ = rx.close();
+    drop(rx);
 }
