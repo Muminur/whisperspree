@@ -156,6 +156,23 @@ mod macos_runtime {
         }
     }
 
+    fn fallback_local_engine(
+        settings: &crate::store::settings::Settings,
+        models: &ModelManager,
+    ) -> Result<ActiveEngine, Error> {
+        let local_model = settings
+            .asr
+            .effective_local_model
+            .clone()
+            .unwrap_or_else(|| settings.asr.local_model.clone());
+        let path = models
+            .resolve_installed(&local_model)
+            .map_err(|error| Error::AsrNoModel(error.to_string()))?;
+        Ok(ActiveEngine::Local(LocalWhisperEngine::new(
+            WhisperRsDecoder::load(path)?,
+        )))
+    }
+
     fn select_engine_for_session(
         settings: &crate::store::settings::Settings,
         models: &ModelManager,
@@ -339,6 +356,50 @@ mod macos_runtime {
                                             } else {
                                                 let drained =
                                                     drain_events(&mut current, event_sink.as_ref());
+                                                if drained.failure_code.as_deref() == Some("NET-STREAM") {
+                                                    // EC-1.1: the cloud stream died mid-utterance.
+                                                    // Swap to the local engine, replay everything it
+                                                    // had already gated, and keep dictating instead
+                                                    // of failing the session.
+                                                    executor.block_on(current.session.abort());
+                                                    warn_runtime_error(microphone.open(), "microphone reopen for cloud fallback");
+                                                    let fallback: Result<(), Error> = (|| {
+                                                        let settings_snapshot = settings.lock().map_err(|_| Error::DbIo("settings lock failed during cloud fallback".into()))?.get()?;
+                                                        let processor = microphone.take_processor().ok_or_else(|| Error::MicDev("capture processor unavailable for fallback".into()))?;
+                                                        let mut engine = fallback_local_engine(&settings_snapshot, &models)?;
+                                                        if let ActiveEngine::Local(local) = &mut engine {
+                                                            local.set_effective_model_persistence(Arc::new(SettingsModelPersistence { settings: Arc::clone(&settings) }));
+                                                        }
+                                                        let retained = current.session.utterance_samples().to_vec();
+                                                        let (event_tx, event_rx) = async_mpsc::channel(32);
+                                                        let mut task = SessionTask::new(engine, local_vad_gate(), event_tx);
+                                                        if let Some(sink) = event_sink.as_ref().cloned() {
+                                                            task.set_speech_observer(Arc::new(move || { sink.speech_observed(); }));
+                                                        }
+                                                        let mut session = LiveCaptureSession::new(CapturePoller::new(processor, 160_000), task);
+                                                        executor.block_on(session.start(AsrConfig::local(String::new())))?;
+                                                        if !retained.is_empty() {
+                                                            session.push_samples(&retained)?;
+                                                        }
+                                                        active = Some(ActiveSession { session, events: event_rx, session_id: session_id.clone(), engine: "local" });
+                                                        Ok(())
+                                                    })();
+                                                    match fallback {
+                                                        Ok(()) => {
+                                                            if let Some(sink) = event_sink.as_ref() {
+                                                                warn_runtime_error(sink.emit_state(&session_id, SessionState::Listening, "local"), "fallback listening emission failed");
+                                                            }
+                                                            tracing::warn!(code = "NET-STREAM", "cloud stream lost; continued on local engine");
+                                                            let _ = reply.send(Ok(()));
+                                                            continue;
+                                                        }
+                                                        Err(error) => {
+                                                            tracing::warn!(code = %error.code(), %error, "local fallback unavailable");
+                                                            let _ = reply.send(Err(error));
+                                                            continue;
+                                                        }
+                                                    }
+                                                }
                                                 if drained.silence_only {
                                                     let reset = coordinator.reset_control();
                                                     warn_runtime_error(reset.clone(), "coordinator reset after silence-only stop");
@@ -448,6 +509,50 @@ mod macos_runtime {
                                             } else {
                                                 let drained =
                                                     drain_events(&mut current, event_sink.as_ref());
+                                                if drained.failure_code.as_deref() == Some("NET-STREAM") {
+                                                    // EC-1.1: the cloud stream died mid-utterance.
+                                                    // Swap to the local engine, replay everything it
+                                                    // had already gated, and keep dictating instead
+                                                    // of failing the session.
+                                                    executor.block_on(current.session.abort());
+                                                    warn_runtime_error(microphone.open(), "microphone reopen for cloud fallback");
+                                                    let fallback: Result<(), Error> = (|| {
+                                                        let settings_snapshot = settings.lock().map_err(|_| Error::DbIo("settings lock failed during cloud fallback".into()))?.get()?;
+                                                        let processor = microphone.take_processor().ok_or_else(|| Error::MicDev("capture processor unavailable for fallback".into()))?;
+                                                        let mut engine = fallback_local_engine(&settings_snapshot, &models)?;
+                                                        if let ActiveEngine::Local(local) = &mut engine {
+                                                            local.set_effective_model_persistence(Arc::new(SettingsModelPersistence { settings: Arc::clone(&settings) }));
+                                                        }
+                                                        let retained = current.session.utterance_samples().to_vec();
+                                                        let (event_tx, event_rx) = async_mpsc::channel(32);
+                                                        let mut task = SessionTask::new(engine, local_vad_gate(), event_tx);
+                                                        if let Some(sink) = event_sink.as_ref().cloned() {
+                                                            task.set_speech_observer(Arc::new(move || { sink.speech_observed(); }));
+                                                        }
+                                                        let mut session = LiveCaptureSession::new(CapturePoller::new(processor, 160_000), task);
+                                                        executor.block_on(session.start(AsrConfig::local(String::new())))?;
+                                                        if !retained.is_empty() {
+                                                            session.push_samples(&retained)?;
+                                                        }
+                                                        active = Some(ActiveSession { session, events: event_rx, session_id: session_id.clone(), engine: "local" });
+                                                        Ok(())
+                                                    })();
+                                                    match fallback {
+                                                        Ok(()) => {
+                                                            if let Some(sink) = event_sink.as_ref() {
+                                                                warn_runtime_error(sink.emit_state(&session_id, SessionState::Listening, "local"), "fallback listening emission failed");
+                                                            }
+                                                            tracing::warn!(code = "NET-STREAM", "cloud stream lost; continued on local engine");
+                                                            let _ = reply.send(Ok(()));
+                                                            continue;
+                                                        }
+                                                        Err(error) => {
+                                                            tracing::warn!(code = %error.code(), %error, "local fallback unavailable");
+                                                            let _ = reply.send(Err(error));
+                                                            continue;
+                                                        }
+                                                    }
+                                                }
                                                 if drained.silence_only {
                                                     let reset = coordinator.reset_control();
                                                     warn_runtime_error(reset.clone(), "coordinator reset after silence-only toggle stop");

@@ -248,10 +248,10 @@ fn fr_1_3_live_rebind_callbacks_use_hotkey_controller_and_runtime_silent_cancel_
             && session.matches("fn cancel_silent_dictation(&self)").count() >= 2,
         "the production session runtime must implement silent accidental-tap cancellation"
     );
-    assert_eq!(
-        session.matches("task.set_speech_observer").count(),
-        2,
-        "both explicit Start and Toggle start paths must install synchronous VAD feedback"
+    assert!(
+        session.matches("task.set_speech_observer").count() >= 3,
+        "explicit Start, Toggle start, AND the EC-1.1 local-fallback continuation \
+         must each install synchronous VAD feedback"
     );
 }
 

@@ -83,6 +83,16 @@ impl<R: SpeechRecognizer, G: FrameGate> LiveCaptureSession<R, G> {
         self.task.recognizer_mut()
     }
 
+    /// EC-1.1: replay retained gated audio into the replacement recognizer.
+    pub fn push_samples(&mut self, samples: &[f32]) -> Result<(), Error> {
+        self.task.push_samples(samples)
+    }
+
+    /// EC-1.1: discard the dead recognizer without publishing anything.
+    pub async fn abort(&mut self) {
+        let _ = self.task.cancel().await;
+    }
+
     /// EC-1.1: gated audio already delivered to the current recognizer.
     pub fn utterance_samples(&self) -> &[f32] {
         self.task.utterance_samples()
