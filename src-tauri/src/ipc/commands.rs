@@ -162,15 +162,21 @@ impl DictationRuntime for UnavailableDictationRuntime {
 }
 
 #[cfg(target_os = "macos")]
-fn default_dictation_runtime(settings: Arc<Mutex<SettingsStore>>) -> Arc<dyn DictationRuntime> {
+fn default_dictation_runtime(
+    settings: Arc<Mutex<SettingsStore>>,
+    keys: Arc<dyn KeyStore>,
+) -> Arc<dyn DictationRuntime> {
     let injector = default_injector(Arc::clone(&settings));
     Arc::new(crate::pipeline::MacSessionRuntime::spawn(
-        settings, injector,
+        settings, injector, keys,
     ))
 }
 
 #[cfg(not(target_os = "macos"))]
-fn default_dictation_runtime(_settings: Arc<Mutex<SettingsStore>>) -> Arc<dyn DictationRuntime> {
+fn default_dictation_runtime(
+    _settings: Arc<Mutex<SettingsStore>>,
+    _keys: Arc<dyn KeyStore>,
+) -> Arc<dyn DictationRuntime> {
     Arc::new(UnavailableDictationRuntime)
 }
 
@@ -288,7 +294,7 @@ impl IpcState {
         let models = ModelManager::new(models_dir)
             .expect("the embedded Whisper model manifest must be valid");
         let settings = Arc::new(Mutex::new(settings));
-        let runtime = default_dictation_runtime(Arc::clone(&settings));
+        let runtime = default_dictation_runtime(Arc::clone(&settings), Arc::clone(&key_store));
         let mut state =
             Self::with_model_service_and_runtime(settings, key_store, Arc::new(models), runtime);
         #[cfg(target_os = "macos")]

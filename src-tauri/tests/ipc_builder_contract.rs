@@ -300,7 +300,10 @@ fn fr_1_1_production_runtime_shares_settings_owner_and_applies_input_device() {
     let session = source("src/pipeline/session.rs");
     let microphone = source("src/pipeline/microphone.rs");
     assert!(commands.contains("let settings = Arc::new(Mutex::new(settings));"));
-    assert!(commands.contains("default_dictation_runtime(Arc::clone(&settings))"));
+    // T3.1: the runtime now also receives the managed KeyStore so the cloud
+    // selector can probe Deepgram key presence.
+    assert!(commands
+        .contains("default_dictation_runtime(Arc::clone(&settings), Arc::clone(&key_store))"));
     assert!(session.contains("settings_snapshot.audio.input_device_id.clone()"));
     assert!(session.contains("set_requested_device_id"));
     assert!(microphone.contains("pub fn set_requested_device_id"));
@@ -364,4 +367,26 @@ fn p9_configure_ipc_registers_exact_42_unique_command_paths() {
         "shared registry must expose every P-9 command"
     );
     assert_eq!(actual, expected);
+}
+
+#[test]
+fn t3_1_runtime_start_selects_local_or_cloud_engine_from_settings_and_keychain() {
+    let session = source("src/pipeline/session.rs");
+    // Both production start paths (explicit Start + toggle-start) must route
+    // engine construction through one shared selector: 1 definition + 2 calls.
+    let sites = session.matches("select_engine_for_session(").count();
+    assert_eq!(
+        sites - 1,
+        2,
+        "exactly the two start paths may construct engines via the shared selector"
+    );
+    assert!(
+        session.contains("engine_from_store(") && session.contains("resolve_mode("),
+        "the selector must combine keychain presence with mode resolution"
+    );
+    let commands = source("src/ipc/commands.rs");
+    assert!(
+        commands.contains("key_store"),
+        "default_dictation_runtime must hand the managed KeyStore to the runtime"
+    );
 }

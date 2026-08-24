@@ -202,3 +202,51 @@ async fn idle_keepalive_and_finalize_close_stream_then_drains_results() {
         vec!["{\"type\":\"KeepAlive\"}", "{\"type\":\"CloseStream\"}"]
     );
 }
+
+#[test]
+fn t3_1_real_connector_rejects_non_tls_or_off_host_endpoints_without_network() {
+    use whisperspree_lib::asr::deepgram::TlsSocketConnector;
+
+    let connector = TlsSocketConnector::new();
+    // Only wss://api.deepgram.com is a valid target (§10.2).
+    let e1 = connector
+        .validate_endpoint("ws://api.deepgram.com/v1/listen")
+        .unwrap_err();
+    assert_eq!(e1.code(), "NET-STREAM");
+    let e2 = connector
+        .validate_endpoint("wss://evil.example.com/v1/listen")
+        .unwrap_err();
+    assert_eq!(e2.code(), "NET-STREAM");
+    connector
+        .validate_endpoint("wss://api.deepgram.com/v1/listen")
+        .expect("the pinned Deepgram endpoint must validate");
+}
+
+#[test]
+fn t3_1_engine_factory_requires_a_deepgram_key_from_the_keystore() {
+    use whisperspree_lib::{
+        asr::deepgram::{DeepgramOptions, TlsSocketConnector},
+        store::keychain::KeyStore,
+        testutil::mocks::InMemoryKeyStore,
+    };
+
+    let empty = InMemoryKeyStore::new();
+    let err = whisperspree_lib::asr::deepgram::engine_from_store(
+        &empty,
+        TlsSocketConnector::new(),
+        DeepgramOptions::default(),
+    )
+    .unwrap_err();
+    assert_eq!(err.code(), "ASR-NOMODEL");
+
+    let store = InMemoryKeyStore::new();
+    store
+        .set("deepgram_api_key", "dg-test-key")
+        .expect("set key");
+    let _engine = whisperspree_lib::asr::deepgram::engine_from_store(
+        &store,
+        TlsSocketConnector::new(),
+        DeepgramOptions::default(),
+    )
+    .expect("a stored key must construct the cloud engine");
+}

@@ -51,8 +51,7 @@ mod macos_runtime {
         }
     }
 
-    type LocalSession =
-        LiveCaptureSession<LocalWhisperEngine<WhisperRsDecoder>, crate::audio::vad::VadSegmenter>;
+    type LocalSession = LiveCaptureSession<ActiveEngine, crate::audio::vad::VadSegmenter>;
 
     struct ActiveSession {
         session: LocalSession,
@@ -94,6 +93,94 @@ mod macos_runtime {
         }
     }
 
+    /// Cloud/local engine selection for one session start (T3.1/T3.2).
+    enum ActiveEngine {
+        Local(LocalWhisperEngine<WhisperRsDecoder>),
+        Cloud(crate::asr::deepgram::DeepgramEngine<crate::asr::deepgram::TlsSocketConnector>),
+    }
+
+    #[async_trait::async_trait]
+    impl crate::asr::SpeechRecognizer for ActiveEngine {
+        async fn start(
+            &mut self,
+            cfg: crate::asr::AsrConfig,
+            tx: tokio::sync::mpsc::Sender<crate::asr::AsrEvent>,
+        ) -> Result<(), Error> {
+            match self {
+                Self::Local(engine) => engine.start(cfg, tx).await,
+                Self::Cloud(engine) => engine.start(cfg, tx).await,
+            }
+        }
+
+        fn feed(&mut self, pcm_16k_mono: &[f32]) -> Result<(), Error> {
+            match self {
+                Self::Local(engine) => engine.feed(pcm_16k_mono),
+                Self::Cloud(engine) => engine.feed(pcm_16k_mono),
+            }
+        }
+
+        fn endpoint_silence(&mut self, silence_ms: u32) -> Result<(), Error> {
+            match self {
+                Self::Local(engine) => engine.endpoint_silence(silence_ms),
+                Self::Cloud(engine) => engine.endpoint_silence(silence_ms),
+            }
+        }
+
+        async fn finalize(&mut self) -> Result<crate::asr::FinalTranscript, Error> {
+            match self {
+                Self::Local(engine) => engine.finalize().await,
+                Self::Cloud(engine) => engine.finalize().await,
+            }
+        }
+
+        async fn abort(&mut self) {
+            match self {
+                Self::Local(engine) => engine.abort().await,
+                Self::Cloud(engine) => engine.abort().await,
+            }
+        }
+    }
+
+    fn select_engine_for_session(
+        settings: &crate::store::settings::Settings,
+        models: &ModelManager,
+        keys: &dyn crate::store::keychain::KeyStore,
+    ) -> Result<ActiveEngine, Error> {
+        use crate::asr::mode::{resolve_mode, ModeAvailability};
+        let cloud_key = keys
+            .get(crate::store::keychain::Provider::Deepgram.account_name())?
+            .is_some_and(|key| !key.trim().is_empty());
+        let mode = resolve_mode(
+            &settings.mode,
+            ModeAvailability {
+                cloud_key,
+                local_model: true,
+            },
+        )?;
+        match mode {
+            crate::asr::mode::EngineMode::Cloud => Ok(ActiveEngine::Cloud(
+                crate::asr::deepgram::engine_from_store(
+                    keys,
+                    crate::asr::deepgram::TlsSocketConnector::new(),
+                    crate::asr::deepgram::DeepgramOptions::default(),
+                )?,
+            )),
+            crate::asr::mode::EngineMode::Local => {
+                let local_model = settings
+                    .asr
+                    .effective_local_model
+                    .clone()
+                    .unwrap_or_else(|| settings.asr.local_model.clone());
+                let path = models
+                    .resolve_installed(&local_model)
+                    .map_err(|error| Error::AsrNoModel(error.to_string()))?;
+                Ok(ActiveEngine::Local(LocalWhisperEngine::new(
+                    WhisperRsDecoder::load(path)?,
+                )))
+            }
+        }
+    }
+
     enum Command {
         Start(Sender<Result<(), Error>>),
         Stop(Sender<Result<(), Error>>),
@@ -111,6 +198,7 @@ mod macos_runtime {
         pub fn spawn(
             settings: Arc<std::sync::Mutex<SettingsStore>>,
             injector: Arc<dyn crate::inject::Injector>,
+            keys: Arc<dyn crate::store::keychain::KeyStore>,
         ) -> Self {
             let (commands, receiver) = mpsc::channel();
             thread::Builder::new()
@@ -127,6 +215,7 @@ mod macos_runtime {
                     let mut active: Option<ActiveSession> = None;
                     let mut event_sink: Option<Arc<dyn SessionEventSink>> = None;
                     let injector: Arc<dyn crate::inject::Injector> = injector;
+                    let keys: Arc<dyn crate::store::keychain::KeyStore> = keys;
                     loop {
                         match receiver.recv_timeout(Duration::from_millis(20)) {
                             Ok(command) => match command {
@@ -150,16 +239,18 @@ mod macos_runtime {
                                         let local_model = settings_snapshot
                                             .asr
                                             .effective_local_model
-                                            .unwrap_or(settings_snapshot.asr.local_model);
-                                        let path =
-                                            models.resolve_installed(&local_model).map_err(|error| {
-                                                Error::AsrNoModel(error.to_string())
-                                            })?;
-                                        let mut engine =
-                                            LocalWhisperEngine::new(WhisperRsDecoder::load(path)?);
-                                        engine.set_effective_model_persistence(Arc::new(
-                                            SettingsModelPersistence { settings: Arc::clone(&settings) },
-                                        ));
+                                            .clone()
+                                            .unwrap_or(settings_snapshot.asr.local_model.clone());
+                                        let mut engine = select_engine_for_session(
+                                            &settings_snapshot,
+                                            &models,
+                                            keys.as_ref(),
+                                        )?;
+                                        if let ActiveEngine::Local(local) = &mut engine {
+                                            local.set_effective_model_persistence(Arc::new(
+                                                SettingsModelPersistence { settings: Arc::clone(&settings) },
+                                            ));
+                                        }
                                         let processor =
                                             microphone.take_processor().ok_or_else(|| {
                                                 Error::MicDev(
@@ -385,16 +476,18 @@ mod macos_runtime {
                                             let local_model = settings_snapshot
                                                 .asr
                                                 .effective_local_model
-                                                .unwrap_or(settings_snapshot.asr.local_model);
-                                            let path = models.resolve_installed(&local_model).map_err(
-                                                |error| Error::AsrNoModel(error.to_string()),
+                                                .clone()
+                                                .unwrap_or(settings_snapshot.asr.local_model.clone());
+                                            let mut engine = select_engine_for_session(
+                                                &settings_snapshot,
+                                                &models,
+                                                keys.as_ref(),
                                             )?;
-                                            let mut engine = LocalWhisperEngine::new(
-                                                WhisperRsDecoder::load(path)?,
-                                            );
-                                            engine.set_effective_model_persistence(Arc::new(
-                                                SettingsModelPersistence { settings: Arc::clone(&settings) },
-                                            ));
+                                            if let ActiveEngine::Local(local) = &mut engine {
+                                                local.set_effective_model_persistence(Arc::new(
+                                                    SettingsModelPersistence { settings: Arc::clone(&settings) },
+                                                ));
+                                            }
                                             let processor =
                                                 microphone.take_processor().ok_or_else(|| {
                                                     Error::MicDev(

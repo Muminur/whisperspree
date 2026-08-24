@@ -61,6 +61,11 @@ webrtc-vad = "0.4"
 reqwest = { version = "0.12", features = ["stream", "json"] }
 sha2 = "0.10"
 
+# T3.1 cloud streaming (§4.2 / §10.2): tokio-tungstenite is the pinned
+# Deepgram live-websocket transport behind `SocketConnector`.
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
+futures-util = "0.3"
+
 # T1.4 local ASR (§5.4 / §9.3): the trait surface and serialized CPU-bound
 # decode worker use Tokio. `async-trait` expresses the pinned async trait API.
 tokio = { version = "1", features = ["full"] }

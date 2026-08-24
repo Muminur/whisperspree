@@ -602,7 +602,10 @@ def safe_push(script_root: str, check_only: bool, values: list[str]) -> int:
     try:
         if hostile_environment():
             raise PolicyError("unsafe policy environment")
-        root = worktree(os.getcwd())
+        # The installed commit hooks (core.hookspath -> <root>/.githooks) are
+        # part of this policy, so push mode must allow exactly that path just
+        # like staged-hook mode does.
+        root = worktree(os.getcwd(), Path(script_root) / ".githooks")
         expected_root = Path(script_root).resolve()
         if root != expected_root or not (expected_root / ".git").is_dir():
             raise PolicyError("safe push must run from its owning primary worktree")

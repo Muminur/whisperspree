@@ -68,6 +68,15 @@ pub struct DeepgramEngine<C: SocketConnector> {
     replayed_samples: usize,
 }
 
+// Manual Debug: the API key must never reach any formatter (PRD §12 P-3).
+impl<C: SocketConnector> std::fmt::Debug for DeepgramEngine<C> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DeepgramEngine")
+            .field("state", &self.state)
+            .finish_non_exhaustive()
+    }
+}
+
 impl<C: SocketConnector> DeepgramEngine<C> {
     pub fn new(connector: C, api_key: impl Into<String>, options: DeepgramOptions) -> Self {
         Self {
@@ -381,4 +390,187 @@ fn seconds_to_ms(seconds: f64) -> u32 {
         return 0;
     }
     (seconds * 1000.0).round().min(u32::MAX as f64) as u32
+}
+
+/// Real TLS connector (T3.1): opens `wss://api.deepgram.com` sockets through
+/// tokio-tungstenite with rustls native roots. Endpoint validation mirrors the
+/// network guard policy and runs BEFORE any I/O so off-host or cleartext
+/// targets fail fast with the closed §14 code.
+pub struct TlsSocketConnector;
+
+impl Default for TlsSocketConnector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TlsSocketConnector {
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// Validates the endpoint without performing network I/O.
+    pub fn validate_endpoint(&self, url: &str) -> Result<(), Error> {
+        let rest = url
+            .strip_prefix("wss://")
+            .ok_or_else(|| Error::NetStream("deepgram endpoint must use wss://".into()))?;
+        let host = rest.split('/').next().unwrap_or_default();
+        if host != "api.deepgram.com" {
+            return Err(Error::NetStream(format!(
+                "refusing non-Deepgram websocket host: {host}"
+            )));
+        }
+        Ok(())
+    }
+}
+
+/// Constructs the cloud engine from the keychain (T3.1): a missing Deepgram
+/// key is the closed `ASR-NOMODEL` condition, never a network attempt.
+pub fn engine_from_store<C: SocketConnector>(
+    store: &dyn crate::store::keychain::KeyStore,
+    connector: C,
+    options: DeepgramOptions,
+) -> Result<DeepgramEngine<C>, Error> {
+    let account = crate::store::keychain::Provider::Deepgram.account_name();
+    let key = store
+        .get(account)?
+        .filter(|key| !key.trim().is_empty())
+        .ok_or_else(|| Error::AsrNoModel("no Deepgram key in keychain".into()))?;
+    Ok(DeepgramEngine::new(connector, key, options))
+}
+
+/// Sync facade over the spawned tungstenite pump. Outbound frames funnel
+/// through a tokio unbounded channel; inbound text drains a std queue so
+/// `try_receive` stays non-blocking exactly like the deterministic double.
+struct LiveSocket {
+    outbound: tokio::sync::mpsc::UnboundedSender<Frame>,
+    inbound: std::sync::mpsc::Receiver<Result<String, Error>>,
+}
+
+enum Frame {
+    Binary(Vec<u8>),
+    Text(String),
+    #[allow(dead_code)] // reserved for the CloseStream drain path in slice 3
+    Close,
+}
+
+impl DeepgramSocket for LiveSocket {
+    fn send_binary(&mut self, bytes: &[u8]) -> Result<(), Error> {
+        self.outbound
+            .send(Frame::Binary(bytes.to_vec()))
+            .map_err(|_| Error::NetStream("websocket pump is gone".into()))
+    }
+
+    fn send_text(&mut self, text: &str) -> Result<(), Error> {
+        self.outbound
+            .send(Frame::Text(text.to_string()))
+            .map_err(|_| Error::NetStream("websocket pump is gone".into()))
+    }
+
+    fn try_receive(&mut self) -> Result<Option<String>, Error> {
+        match self.inbound.try_recv() {
+            Ok(message) => message.map(Some),
+            Err(std::sync::mpsc::TryRecvError::Empty) => Ok(None),
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                Err(Error::NetStream("websocket closed".into()))
+            }
+        }
+    }
+}
+
+impl SocketConnector for TlsSocketConnector {
+    fn connect(
+        &self,
+        request: &str,
+        authorization: &str,
+    ) -> Result<Box<dyn DeepgramSocket>, Error> {
+        self.validate_endpoint(request)?;
+        // Caller must already sit inside the session's Tokio runtime
+        // (MacSessionRuntime owns one); we only spawn from here.
+        let _handle = tokio::runtime::Handle::try_current()
+            .map_err(|_| Error::NetStream("cloud connector requires the session runtime".into()))?;
+        let (outbound_tx, mut outbound_rx) = tokio::sync::mpsc::unbounded_channel::<Frame>();
+        let (inbound_tx, inbound_rx) = std::sync::mpsc::channel::<Result<String, Error>>();
+        let request = request.to_string();
+        let authorization = authorization.to_string();
+        tokio::spawn(async move {
+            use futures_util::{SinkExt, StreamExt};
+            let ws_request = match tungstenite_request(&request, &authorization) {
+                Ok(request) => request,
+                Err(error) => {
+                    let _ = inbound_tx.send(Err(error));
+                    return;
+                }
+            };
+            let (mut ws, _) = match tokio_tungstenite::connect_async(ws_request).await {
+                Ok(pair) => pair,
+                Err(error) => {
+                    let _ = inbound_tx.send(Err(Error::NetStream(format!(
+                        "deepgram connect failed: {error}"
+                    ))));
+                    return;
+                }
+            };
+            loop {
+                tokio::select! {
+                    frame = outbound_rx.recv() => {
+                        match frame {
+                            Some(Frame::Binary(bytes)) => {
+                                if ws.send(tokio_tungstenite::tungstenite::Message::Binary(bytes)).await.is_err() {
+                                    break;
+                                }
+                            }
+                            Some(Frame::Text(text)) => {
+                                if ws.send(tokio_tungstenite::tungstenite::Message::Text(text)).await.is_err() {
+                                    break;
+                                }
+                            }
+                            Some(Frame::Close) | None => {
+                                let _ = ws.close(None).await;
+                                break;
+                            }
+                        }
+                    }
+                    message = ws.next() => {
+                        match message {
+                            Some(Ok(msg)) => {
+                                if let tokio_tungstenite::tungstenite::Message::Text(text) = msg {
+                                    if inbound_tx.send(Ok(text)).is_err() {
+                                        break;
+                                    }
+                                }
+                            }
+                            Some(Err(error)) => {
+                                let _ = inbound_tx.send(Err(Error::NetStream(format!(
+                                    "deepgram stream failed: {error}"
+                                ))));
+                                break;
+                            }
+                            None => break,
+                        }
+                    }
+                }
+            }
+        });
+        Ok(Box::new(LiveSocket {
+            outbound: outbound_tx,
+            inbound: inbound_rx,
+        }))
+    }
+}
+
+fn tungstenite_request(
+    url: &str,
+    authorization: &str,
+) -> Result<tokio_tungstenite::tungstenite::http::Request<()>, Error> {
+    tokio_tungstenite::tungstenite::client::IntoClientRequest::into_client_request(url)
+        .map_err(|e| Error::NetStream(format!("invalid websocket request: {e}")))
+        .map(|mut request| {
+            request.headers_mut().insert(
+                "Authorization",
+                tokio_tungstenite::tungstenite::http::HeaderValue::from_str(authorization)
+                    .map_err(|e| Error::NetStream(format!("bad authorization header: {e}")))?,
+            );
+            Ok(request)
+        })?
 }
